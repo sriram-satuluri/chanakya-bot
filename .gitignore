@@ -1,0 +1,35 @@
+# Environment secrets — catch every variant, allow .env.example only
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Runtime data
+data/
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build/log artifacts
+*.log
+npm-debug.log*
+yarn-debug.log*
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Local scratch — never track these
+tmp/
+scratch/
+# NB: Chanakya_Terms_and_Conditions.{docx,pdf} ARE tracked — they're the
+# canonical business source for the T&Cs. Do not add them here.
