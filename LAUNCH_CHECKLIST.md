@@ -99,30 +99,34 @@ WhatsApp only lets you send **free-form** messages within 24 hours of the
 customer's last message to you. After that, any business-initiated message must
 be a **Meta-approved template**.
 
-**Default posture: pull-only (free).** All proactive *customer* notifications are
-OFF by default, so at launch the bot spends nothing on messaging — customers
-check their own status any time via Track (free, inside the window). This also
-means you don't need to create any templates to go live.
+**Default posture: smart (free-when-free).** The bot tracks when each customer
+last messaged it (`data/last_contact.json`). On a sheet status change:
 
-The proactive features, and how to turn each on later:
+- Customer messaged within the last ~24h → window OPEN → status push sent
+  free-form at **₹0**.
+- Window CLOSED → only **"Ready for Pickup"** is sent from our side:
+  - If `PICKUP_TEMPLATE_NAME` is set → sent as an approved **utility template**
+    (≈ ₹0.115 + GST) and it reliably delivers.
+  - If not set → attempted free-form; if Meta confirms the window is closed
+    (error 131047) the push is dropped with a clear log — never retried, never
+    silent.
+- All other statuses with a closed window are skipped — customers see them free
+  via Track whenever they want.
 
-- Status-change pushes (`statusPoller`) — `STATUS_PUSH_MODE`:
-  `off` (default) / `ready_only` (recommended once live) / `all`.
-- Pickup reminders (`pickupReminder`) — `PICKUP_REMINDER_ENABLED=true`.
-- Reassurance pings (`reassurancePing`) — `REASSURANCE_ENABLED=true`.
-- Owner alerts (new ticket / lead) — **always on** (business ops, 2–3 recipients).
+Controls (`.env`): `STATUS_PUSH_MODE=smart|off|ready_only|all` (default smart),
+`PICKUP_TEMPLATE_NAME` (utility template, body vars {{1}}=ticket id,
+{{2}}=store, approved in en/hi/gu), `LAST_CONTACT_CACHE_PATH` (persist with a
+volume, like the status snapshot).
 
-When you DO enable any customer push, remember it fires outside the 24-hour
-window, so Meta requires an **approved utility template** (≈ ₹0.115 + GST each).
-Create the template in Meta → WhatsApp Manager → Message Templates, then have the
-developer wire `sendTemplateMessage` into that job. If a push is attempted
-without a template while the window is closed, Meta returns **error 131047** and
-the bot logs a clear `24-hour service window closed` warning (never a silent
-failure).
+Other proactive features stay opt-in: pickup reminders
+(`PICKUP_REMINDER_ENABLED=true`), reassurance pings (`REASSURANCE_ENABLED=true`).
+Owner alerts (new ticket / lead) are always on — business ops, 2–3 recipients.
 
-**Recommendation:** launch pull-only. Once stable, turn on just
-`STATUS_PUSH_MODE=ready_only` — the "your bag is ready" message is the only push
-that pays for itself (it drives pickup + payment and clears storage).
+**To make closed-window pickup pushes deliver:** create the utility template in
+Meta → WhatsApp Manager → Message Templates (e.g. "Your repair {{1}} is ready
+for pickup at {{2}}. We hold bags free for 30 days."), get it approved in all
+three languages, then set `PICKUP_TEMPLATE_NAME` and restart. Everything else
+already works with zero templates and zero message cost.
 
 ## Operational notes
 

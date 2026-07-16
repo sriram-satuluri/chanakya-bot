@@ -1,5 +1,9 @@
 const { readTicketRows, extractHttpsUrlFromCell } = require('../services/sheets');
-const { sendTextMessage, sendImageMessage, sendButtonMessage, isLikelySendablePhone } = require('../services/whatsapp');
+const {
+  sendTextMessage, sendImageMessage, sendButtonMessage, sendTemplateMessage,
+  isLikelySendablePhone, isOutsideWindowError,
+} = require('../services/whatsapp');
+const { isServiceWindowOpen } = require('../utils/lastContactCache');
 const M = require('../messages/index');
 const { DEFAULT_REPAIR_TICKET_STATUS } = require('../constants/repairTicketStatuses');
 const {
@@ -26,15 +30,20 @@ const KNOWN_POLLER_MSG = {
  */
 /**
  * Which status changes trigger a proactive WhatsApp to the customer:
- *   off        → never message customers (pure free pull model — the default).
- *   ready_only → only when a bag becomes "Ready for Pickup" (the high-ROI push).
- *   all        → every status change (needs approved templates; highest cost).
+ *   smart      → DEFAULT. Push any status change while the customer's 24h
+ *                service window is open (FREE). Once the window is closed,
+ *                only "Ready for Pickup" goes out — via PICKUP_TEMPLATE_NAME
+ *                if configured (paid utility template), else attempted
+ *                free-form (Meta is the final authority on the window).
+ *   off        → never message customers (pure pull model).
+ *   ready_only → only "Ready for Pickup" pushes.
+ *   all        → every status change regardless of window (needs templates).
  * The snapshot is still updated in every mode, so switching modes never
  * back-fires a backlog of old changes.
  */
 function statusPushMode() {
-  const m = String(process.env.STATUS_PUSH_MODE || 'off').trim().toLowerCase();
-  return ['off', 'ready_only', 'all'].includes(m) ? m : 'off';
+  const m = String(process.env.STATUS_PUSH_MODE || 'smart').trim().toLowerCase();
+  return ['smart', 'off', 'ready_only', 'all'].includes(m) ? m : 'smart';
 }
 
 async function pollStatusChanges() {
@@ -93,6 +102,18 @@ async function pollStatusChanges() {
     if (pushMode === 'off') continue;
     if (pushMode === 'ready_only' && row.status !== 'Ready for Pickup') continue;
 
+    // windowClosed rides along so notifyCustomer can pick free-form vs template.
+    row.windowClosed = !isServiceWindowOpen(row.phone);
+
+    if (pushMode === 'smart' && row.windowClosed && row.status !== 'Ready for Pickup') {
+      // Window closed → a free-form push would be rejected AND cost money as a
+      // template. Not worth it for intermediate statuses: the customer sees
+      // them for free via Track whenever they like. Only the pickup message
+      // is business-critical enough to send from our side.
+      console.log(`[POLLER] ${row.ticketId} → "${row.status}" — customer window closed; non-pickup push skipped (snapshot updated)`);
+      continue;
+    }
+
     if (!isLikelySendablePhone(row.phone)) {
       console.warn(`[POLLER] ${row.ticketId} status changed but phone is missing/invalid — skipping push`);
       continue;
@@ -116,8 +137,16 @@ async function pollStatusChanges() {
       await notifyCustomer(ticket);
       await sleep(700);
     } catch (err) {
-      console.error(`[POLLER] Push failed (${ticket.ticketId}):`, err.message);
-      finalSnap[ticket.ticketId] = prevSnap[ticket.ticketId];
+      const metaCode = err.response?.data?.error?.code;
+      if (isOutsideWindowError(metaCode)) {
+        // Retrying free-form against a closed window fails identically every
+        // 15 min — keep the new status in the snapshot (no retry) and say why.
+        console.error(`[POLLER] ${ticket.ticketId}: 24h window closed — push dropped, no retry. `
+          + `Set PICKUP_TEMPLATE_NAME (approved utility template) to reach closed-window customers.`);
+      } else {
+        console.error(`[POLLER] Push failed (${ticket.ticketId}):`, err.message);
+        finalSnap[ticket.ticketId] = prevSnap[ticket.ticketId];
+      }
     }
   }
 
@@ -125,11 +154,36 @@ async function pollStatusChanges() {
   console.log('[POLLER] Snapshot saved.');
 }
 
+/** Locale codes for the pickup template (must match the approved template's languages). */
+const TEMPLATE_LANG_CODE = { english: 'en', hindi: 'hi', gujarati: 'gu' };
+
 /**
  * Outbound WhatsApp when sheet status differs from cached value.
  */
 async function notifyCustomer(ticket) {
   const lang = ticket.language || 'english';
+
+  // Closed window + Ready for Pickup: free-form would be rejected, so use the
+  // approved utility template if configured (template must have exactly two
+  // body variables: {{1}}=ticket id, {{2}}=store). Single message — no photo /
+  // buttons follow-ups, those are free-form and would bounce too.
+  if (ticket.windowClosed && ticket.status === 'Ready for Pickup') {
+    const tpl = process.env.PICKUP_TEMPLATE_NAME?.trim();
+    if (tpl) {
+      await sendTemplateMessage(ticket.phone, tpl, TEMPLATE_LANG_CODE[lang] || 'en', [{
+        type: 'body',
+        parameters: [
+          { type: 'text', text: String(ticket.ticketId) },
+          { type: 'text', text: String(ticket.store || '—') },
+        ],
+      }]);
+      console.log(`[POLLER] Pushed pickup TEMPLATE → ***${String(ticket.phone).slice(-4)} — ${ticket.ticketId}`);
+      return;
+    }
+    // No template configured: fall through and attempt free-form. Our window
+    // tracking is conservative (unknown = closed), so Meta may still accept;
+    // if it is truly closed, the caller drops it without retry.
+  }
 
   let statusMsgKey = KNOWN_POLLER_MSG[ticket.status];
   if (!statusMsgKey) {

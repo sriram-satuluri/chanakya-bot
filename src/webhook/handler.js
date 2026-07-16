@@ -4,6 +4,7 @@ const { detectLanguage } = require('../utils/languageDetect');
 const { detectIntent } = require('../utils/intentDetect');
 const { logAnalytics } = require('../services/sheets');
 const { markAsRead } = require('../services/whatsapp');
+const { recordInboundMessage } = require('../utils/lastContactCache');
 
 /* ── Log-safety helpers ──────────────────────────────────────────────
  * PII redaction + log-injection defence. Phones are truncated to last-4
@@ -114,6 +115,11 @@ async function processMessage(message, contact) {
     return;
   }
   const msgType = message.type;
+
+  // Every inbound message (re)opens the customer's free 24h service window.
+  // Persist the timestamp so the status poller can push for free while the
+  // window is open and skip/paid-template when it's closed.
+  recordInboundMessage(phone);
 
   // Send a read receipt (blue ticks) so the customer sees the business is
   // responsive. Free, not billed, not counted by the circuit breaker.
