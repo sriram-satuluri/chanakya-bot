@@ -1,0 +1,9 @@
+{
+  "ignore": [
+    "data/*",
+    "data/**/*",
+    "*.pdf",
+    "*.docx"
+  ],
+  "ext": "js,json"
+}

@@ -81,7 +81,13 @@ async function handleTrackFlow(phone, text, session, intent = null) {
     return sendTicketPicker(phone, lang, mine);
   }
 
-  // Already in track flow — the message is either a tapped ticket row or a typed ID.
+  // Already in track flow — the message is a tapped ticket row, the
+  // "enter a number" option, or a typed ID.
+  if (text === 'track_enter_id') {
+    updateSession(phone, { flowStep: 'ask_ticket_id' });
+    return sendTextMessage(phone, M.get('track_ask_id', lang));
+  }
+
   const canonical = tryParseTicketId(text);
   if (canonical) {
     clearSession(phone);
@@ -115,7 +121,8 @@ async function handleTrackFlow(phone, text, session, intent = null) {
  * tickets are still distinguishable; the ticket ID is the row title.
  */
 async function sendTicketPicker(phone, lang, tickets) {
-  const rows = tickets.slice(0, 10).map((t) => {
+  // 9 tickets + 1 "enter a number" row = WhatsApp's 10-row list maximum.
+  const rows = tickets.slice(0, 9).map((t) => {
     // Lead with the live status (what they came to see), then the bag to tell
     // near-identical tickets apart. Ticket ID is the row title for uniqueness.
     const bits = [shortStatusLabel(t.status, lang), t.bagType].filter(Boolean).join(' · ');
@@ -127,6 +134,16 @@ async function sendTicketPicker(phone, lang, tickets) {
     if (bits) row.description = bits.substring(0, 72);
     return row;
   });
+
+  // Family/friend tracking: a ticket booked from another phone can be tracked
+  // here by typing its ID.
+  const enterIdRow = {
+    english:  { title: '🔖 Enter ticket number', description: 'Track a ticket booked from another number' },
+    hindi:    { title: '🔖 टिकट नंबर डालें', description: 'दूसरे नंबर से बने टिकट को ट्रैक करें' },
+    gujarati: { title: '🔖 ટિકિટ નંબર લખો', description: 'બીજા નંબરથી બનેલી ટિકિટ ટ્રૅક કરો' },
+  };
+  const eir = enterIdRow[lang] || enterIdRow.english;
+  rows.push({ id: 'track_enter_id', title: eir.title.substring(0, 24), description: eir.description.substring(0, 72) });
 
   const header = { english: 'Your Repairs', hindi: 'आपकी रिपेयर', gujarati: 'તમારી રિપેર' };
   const body = {
@@ -158,11 +175,36 @@ function noTicketsPrompt(lang) {
 
 /**
  * Normalise a WhatsApp/Meta phone number for equality checks.
- * Meta gives country-code-first digits (e.g. 918490046663). Some sheet rows may
+ * Meta gives country-code-first digits (e.g. 919876543210). Some sheet rows may
  * have +91 prefixes or spaces from manual edits. Compare on the digits-only form.
  */
 function normPhone(v) {
   return String(v || '').replace(/[^0-9]/g, '');
+}
+
+/**
+ * Anti-enumeration budget for shared tracking: each phone may make at most
+ * CROSS_LOOKUP_MAX lookups per hour that are either misses or views of a
+ * ticket booked from another number. A mum checking her son's ticket uses 1;
+ * a scraper walking sequential IDs runs dry after a handful.
+ */
+const CROSS_LOOKUP_MAX = 5;
+const CROSS_LOOKUP_WINDOW_MS = 60 * 60 * 1000;
+const _crossLookups = new Map(); // askerPhone -> { count, resetAt }
+setInterval(() => {
+  const now = Date.now();
+  for (const [p, b] of _crossLookups) if (b.resetAt < now) _crossLookups.delete(p);
+}, 15 * 60 * 1000).unref();
+
+function allowCrossLookup(askerNorm) {
+  const now = Date.now();
+  let b = _crossLookups.get(askerNorm);
+  if (!b || b.resetAt < now) {
+    b = { count: 0, resetAt: now + CROSS_LOOKUP_WINDOW_MS };
+    _crossLookups.set(askerNorm, b);
+  }
+  b.count++;
+  return b.count <= CROSS_LOOKUP_MAX;
 }
 
 async function lookupAndSend(phone, ticketId /* canonical */, lang) {
@@ -179,12 +221,15 @@ async function lookupAndSend(phone, ticketId /* canonical */, lang) {
     return sendTextMessage(phone, errMsg[lang] || errMsg.english);
   }
 
-  // IDOR guard: only the phone that submitted the ticket can view it. Anyone
-  // else asking gets the same "not found" response so we don't leak whether
-  // the ticket exists. Ticket IDs are 4-digit sequential and trivially
-  // enumerable, so this check is what actually protects customer PII / photos.
+  // Shared-tracking model (product decision): anyone who knows the EXACT
+  // ticket ID may view its status — like a courier tracking number — so a
+  // family member can track a ticket booked from another phone. The status
+  // reply deliberately contains no customer name or phone number.
   //
-  // Owners get an exemption so they can help debug from their own phones.
+  // Because ticket IDs are sequential (guessable), cross-phone and not-found
+  // lookups are throttled per asking phone so nobody can enumerate
+  // CHA-2026-0001…9999 fishing for hits. Store owners and the ticket's own
+  // phone are never throttled.
   const { getGeneralOwnerPhones, getBranchOwnerPhones } = require('../utils/ownerPhones');
   const ownerAllowlist = new Set([
     ...getGeneralOwnerPhones(),
@@ -195,14 +240,23 @@ async function lookupAndSend(phone, ticketId /* canonical */, lang) {
   const askerNorm  = normPhone(phone);
   const ticketNorm = ticket ? normPhone(ticket.phone) : '';
   const isOwner = ownerAllowlist.has(askerNorm);
+  const isOwnTicket = ticket && askerNorm === ticketNorm;
 
-  if (ticket && !isOwner && askerNorm !== ticketNorm) {
-    // Redact phones in the log so this line — which is a security event — doesn't
-    // itself become a source of PII exposure.
-    const rd = (p) => (p && p.length > 4) ? '***' + p.slice(-4) : '***';
-    console.warn(`[TRACK] IDOR blocked: ${rd(askerNorm)} tried to view ${ticket.ticketId} (belongs to ${rd(ticketNorm)})`);
-    // Fall through to the "not found" branch with the SAME response body.
-    ticket = null;
+  const rd = (p) => (p && p.length > 4) ? '***' + p.slice(-4) : '***';
+  if (!isOwner && !isOwnTicket) {
+    // Cross-phone view (found) or a miss — both count toward the guess budget.
+    if (!allowCrossLookup(askerNorm)) {
+      console.warn(`[TRACK] lookup throttled for ${rd(askerNorm)} (too many cross/miss lookups)`);
+      const throttleMsg = {
+        english: `Too many ticket lookups in a short time. Please try again in an hour, or call us:\n${defaultCallLine()}`,
+        hindi:   `थोड़े समय में बहुत सारी ticket जांच हो गई हैं। कृपया एक घंटे बाद फिर कोशिश करें, या कॉल करें:\n${defaultCallLine()}`,
+        gujarati:`ટૂંકા સમયમાં ઘણી ટિકિટ તપાસ થઈ ગઈ છે. કૃપા કરીને એક કલાક પછી ફરી પ્રયાસ કરો, અથવા કૉલ કરો:\n${defaultCallLine()}`,
+      };
+      return sendTextMessage(phone, throttleMsg[lang] || throttleMsg.english);
+    }
+    if (ticket) {
+      console.log(`[TRACK] shared view: ${rd(askerNorm)} viewed ${ticket.ticketId} (booked by ${rd(ticketNorm)})`);
+    }
   }
 
   if (!ticket) {

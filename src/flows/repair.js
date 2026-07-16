@@ -38,18 +38,22 @@ const PROBLEMS = {
   gujarati: ['ઝિપ / ચેઈનની સમસ્યા', 'વ્હીલની સમસ્યા', 'હૅન્ડલની સમસ્યા', 'લૉકની સમસ્યા', 'સિલાઈ / ફાટ', 'સફાઈ / પૉલિશ', 'લાઇનિંગ', 'અન્ય'],
 };
 
+// WhatsApp caps interactive-button titles at 20 characters (API limit), so the
+// labels must be complete words that FIT — never let long text get chopped
+// mid-word ("Alkapuri — Race Cour"). Store names alone are unambiguous; the
+// full address is shown in the confirmation + contact messages that follow.
 const STORES = {
   english:  [
-    { id: 'store_alkapuri', label: 'Alkapuri — Race Course Rd' },
-    { id: 'store_sursagar', label: 'Sursagar — Opp. Pratap Talkies' },
+    { id: 'store_alkapuri', label: '📍 Alkapuri' },
+    { id: 'store_sursagar', label: '📍 Sursagar' },
   ],
   hindi: [
-    { id: 'store_alkapuri', label: 'Alkapuri — Race Course Rd' },
-    { id: 'store_sursagar', label: 'Sursagar — Pratap Talkies के सामने' },
+    { id: 'store_alkapuri', label: '📍 Alkapuri' },
+    { id: 'store_sursagar', label: '📍 Sursagar' },
   ],
   gujarati: [
-    { id: 'store_alkapuri', label: 'Alkapuri — Race Course Rd' },
-    { id: 'store_sursagar', label: 'Sursagar — Pratap Talkies સામે' },
+    { id: 'store_alkapuri', label: '📍 Alkapuri' },
+    { id: 'store_sursagar', label: '📍 Sursagar' },
   ],
 };
 
@@ -308,9 +312,9 @@ async function sendStoreMenu(phone, lang, photoStatus = 'ok') {
   if (photoStatus === 'failed') {
     // Ask about store without claiming we received the photo (we didn't)
     prompt = {
-      english:  `Which store will you bring the bag to?`,
-      hindi:    `आप बैग किस स्टोर पर लाएंगे?`,
-      gujarati: `આપ બેગ કયા સ્ટોર પર લઈ આવશો?`,
+      english:  `Which store will you bring the bag to?\n\n📍 *Alkapuri* — Race Course Road\n📍 *Sursagar* — Opp. Pratap Talkies`,
+      hindi:    `आप बैग किस स्टोर पर लाएंगे?\n\n📍 *Alkapuri* — Race Course Road\n📍 *Sursagar* — Pratap Talkies के सामने`,
+      gujarati: `આપ બેગ કયા સ્ટોર પર લઈ આવશો?\n\n📍 *Alkapuri* — Race Course Road\n📍 *Sursagar* — Pratap Talkies સામે`,
     }[lang] || `Which store will you bring the bag to?`;
   } else {
     prompt = M.get('photo_received', lang);

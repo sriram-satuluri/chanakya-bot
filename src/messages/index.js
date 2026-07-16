@@ -74,52 +74,64 @@ const messages = {
       `📜 *Our Terms & Conditions — Quick Summary*\n\n` +
       `🔧 *Repairs*\n` +
       `• Booking here = ticket only. Real repair starts after you drop the bag in store.\n` +
+      `• We inspect and share a *quotation* — *repair begins only after you approve it.* If any extra cost comes up during the repair, we take your *consent first.*\n` +
       `• We hold ready bags free for *30 days*; storage fee after that; disposal after ~4 months.\n` +
       `• *Empty pockets* before drop-off — we aren't responsible for items left inside.\n` +
       `• Free guarantee repairs: weekdays only. Paid repairs: all 7 days.\n\n` +
+      `🛡️ *Warranty / Guarantee*\n` +
+      `• *Invoice is mandatory* to claim — a clear *soft copy* is accepted if you don't have the physical one. Without it, we can't process a claim.\n` +
+      `• *We do not store* your invoice or warranty card — please keep them safe.\n` +
+      `• Bags: 12-month cover for *zip alignment & basic stitching*; tears, new zips & other work are chargeable.\n\n` +
       `🛍️ *Purchases & Returns*\n` +
       `• Returns depend on the *brand* — confirm at the time of purchase.\n` +
       `• Returns are issued as *Chanakya store credit ONLY* (12 months validity). No cash or bank-account refunds — ever.\n\n` +
       `🤝 *Custom-printed bulk orders*\n` +
       `• We print *one sample* first; bulk printing only after your written approval.\n` +
-      `• Printing is by a third-party vendor.\n\n` +
-      `🔒 *Privacy*\n` +
-      `• We collect only what's needed to serve you. We don't sell your data.\n\n` +
-      `📞 *Grievance Officer:* See full Terms for contact details.\n\n` +
+      `• We respond to bulk enquiries within *18 hours.* Printing is by a third-party vendor.\n\n` +
+      `⏰ *Store hours:* 10 AM – 9 PM (Mon–Sun)\n` +
+      `🔒 *Privacy:* We collect only what's needed and don't sell your data.\n\n` +
       `{{terms_link_line}}`,
     hindi:
       `📜 *हमारी Terms & Conditions — संक्षिप्त सारांश*\n\n` +
       `🔧 *रिपेयर*\n` +
       `• यहाँ बुकिंग सिर्फ टिकट बनाती है। असली रिपेयर तब शुरू होगी जब आप बैग दुकान पर लाएँगे।\n` +
+      `• हम जाँच करके *कोटेशन* देंगे — *आपकी मंज़ूरी के बाद ही रिपेयर शुरू होगी।* रिपेयर के दौरान कोई अतिरिक्त खर्च आए तो पहले *आपकी सहमति* लेंगे।\n` +
       `• तैयार बैग *30 दिन* तक मुफ्त रखेंगे; उसके बाद storage charge; ~4 महीने बाद disposal।\n` +
       `• ड्रॉप-ऑफ से पहले बैग *खाली* कर लें — अंदर रखी चीज़ों की ज़िम्मेदारी नहीं।\n` +
       `• मुफ्त गारंटी रिपेयर: सिर्फ weekdays। Paid रिपेयर: सातों दिन।\n\n` +
+      `🛡️ *वारंटी / गारंटी*\n` +
+      `• क्लेम के लिए *इनवॉइस ज़रूरी* — फिज़िकल न हो तो साफ *soft copy* चलेगी। इसके बिना क्लेम नहीं हो सकता।\n` +
+      `• हम आपका इनवॉइस/वारंटी कार्ड *स्टोर नहीं करते* — कृपया संभालकर रखें।\n` +
+      `• बैग: *zip alignment और basic stitching* पर 12 महीने कवर; tear, नया zip व अन्य काम chargeable।\n\n` +
       `🛍️ *खरीदारी और रिटर्न*\n` +
       `• Return policy *brand* पर निर्भर — खरीदते समय confirm करें।\n` +
       `• Return सिर्फ *Chanakya store credit* के रूप में (12 महीने validity)। Cash या bank refund — कभी नहीं।\n\n` +
       `🤝 *Custom-printed bulk orders*\n` +
       `• पहले *एक सैंपल* प्रिंट होगा; आपकी लिखित approval के बाद ही bulk प्रिंटिंग।\n` +
-      `• प्रिंटिंग third-party vendor द्वारा।\n\n` +
-      `🔒 *Privacy*\n` +
-      `• केवल ज़रूरी जानकारी संग्रहित करते हैं। आपका data नहीं बेचते।\n\n` +
-      `📞 *Grievance Officer:* पूरी Terms में संपर्क विवरण।\n\n` +
+      `• बल्क enquiry का जवाब *18 घंटे* में। प्रिंटिंग third-party vendor द्वारा।\n\n` +
+      `⏰ *स्टोर समय:* सुबह 10 – रात 9 (सोम–रवि)\n` +
+      `🔒 *Privacy:* केवल ज़रूरी जानकारी रखते हैं, data नहीं बेचते।\n\n` +
       `{{terms_link_line}}`,
     gujarati:
       `📜 *અમારી Terms & Conditions — ટૂંકો સારાંશ*\n\n` +
       `🔧 *રિપેર*\n` +
       `• અહીં બુકિંગ માત્ર ટિકિટ બનાવે છે. અસલી રિપેર બેગ સ્ટોર પર પહોંચ્યા પછી શરૂ થાય.\n` +
+      `• અમે ચકાસીને *કોટેશન* આપીશું — *તમારી મંજૂરી પછી જ રિપેર શરૂ થશે.* રિપેર દરમિયાન કોઈ વધારાનો ખર્ચ આવે તો પહેલા *તમારી સંમતિ* લઈશું.\n` +
       `• તૈયાર બેગ *30 દિવસ* સુધી મફત રાખીશું; પછી storage fee; ~4 મહિના પછી disposal.\n` +
       `• ડ્રોપ-ઓફ પહેલા બેગ *ખાલી* કરો — અંદર રાખેલી વસ્તુઓની જવાબદારી નથી.\n` +
       `• મફત ગૅરંટી રિપેર: માત્ર weekdays. Paid રિપેર: બધા 7 દિવસ.\n\n` +
+      `🛡️ *વૉરંટી / ગૅરંટી*\n` +
+      `• ક્લેમ માટે *ઇનવૉઇસ ફરજિયાત* — ફિઝિકલ ન હોય તો ચોખ્ખી *soft copy* ચાલશે. એના વગર ક્લેમ થઈ શકે નહીં.\n` +
+      `• અમે તમારું ઇનવૉઇસ/વૉરંટી કાર્ડ *સ્ટોર કરતા નથી* — કૃપા કરીને સાચવો.\n` +
+      `• બેગ: *zip alignment અને basic stitching* પર 12 મહિના કવર; tear, નવો zip અને બીજું કામ chargeable.\n\n` +
       `🛍️ *ખરીદી અને રિટર્ન*\n` +
       `• Return policy *brand* પ્રમાણે — ખરીદતી વખતે ખાતરી કરો.\n` +
       `• Return માત્ર *Chanakya store credit* તરીકે (12 મહિના validity). Cash કે bank refund — ક્યારેય નહીં.\n\n` +
       `🤝 *Custom-printed bulk orders*\n` +
       `• પહેલા *એક સેમ્પલ* પ્રિન્ટ થશે; તમારી લેખિત મંજૂરી પછી જ bulk printing.\n` +
-      `• Printing third-party vendor દ્વારા.\n\n` +
-      `🔒 *Privacy*\n` +
-      `• માત્ર જરૂરી માહિતી રાખીએ છીએ. તમારો data વેચતા નથી.\n\n` +
-      `📞 *Grievance Officer:* પૂરી Terms માં સંપર્ક વિગતો.\n\n` +
+      `• બલ્ક enquiryનો જવાબ *18 કલાક*માં. Printing third-party vendor દ્વારા.\n\n` +
+      `⏰ *સ્ટોર સમય:* સવારે 10 – રાત 9 (સોમ–રવિ)\n` +
+      `🔒 *Privacy:* માત્ર જરૂરી માહિતી રાખીએ છીએ, data વેચતા નથી.\n\n` +
       `{{terms_link_line}}`,
   },
 
@@ -181,15 +193,15 @@ const messages = {
   },
 
   photo_received: {
-    english: `Photo received! ✅\n\nWhich store will you bring the bag to?`,
-    hindi:   `फोटो मिल गई! ✅\n\nआप बैग किस स्टोर पर लाएंगे?`,
-    gujarati:`ફોટો મળી! ✅\n\nઆપ બેગ કયા સ્ટોર પર લઈ આવશો?`,
+    english: `Photo received! ✅\n\nWhich store will you bring the bag to?\n\n📍 *Alkapuri* — Race Course Road\n📍 *Sursagar* — Opp. Pratap Talkies`,
+    hindi:   `फोटो मिल गई! ✅\n\nआप बैग किस स्टोर पर लाएंगे?\n\n📍 *Alkapuri* — Race Course Road\n📍 *Sursagar* — Pratap Talkies के सामने`,
+    gujarati:`ફોટો મળી! ✅\n\nઆપ બેગ કયા સ્ટોર પર લઈ આવશો?\n\n📍 *Alkapuri* — Race Course Road\n📍 *Sursagar* — Pratap Talkies સામે`,
   },
 
   repair_confirmed: {
-    english: `✅ *Repair Request Confirmed!*\n\n🎫 *Ticket ID:* {{ticketId}}\n👜 *Bag:* {{bagType}}\n🔧 *Problem:* {{problem}}\n🏪 *Bring to:* {{store}}\n\n📋 *Next step:* We still need your *bag physically in the store* before work can begin — chatting with us here doesn’t count as dropping it off 😉.\n📊 Sheet status defaults to *_waiting until the bag arrives at {{store}}*_.\n\n_Save your Ticket ID! Track anytime:_\n*TRACK {{ticketId}}*`,
-    hindi:   `✅ *रिपेयर अनुरोध पक्का हो गया!*\n\n🎫 *टिकट ID:* {{ticketId}}\n👜 *बैग:* {{bagType}}\n🔧 *समस्या:* {{problem}}\n🏪 *स्टोर:* {{store}}\n\n📋 *अगला कदम:* रिपेयर शुरू करने से पहले हमें *बैग स्टोर पर शारीरिक रूप से* चाहिए — यहाँ चैट करना ड्रॉप-ऑफ नहीं है 😉।\n📊 शीट पर स्टेटस तब तक *प्रतीक्षा* रहेगी जब तक बैग *{{store}}* पर न आ जाए।\n\n_अपना Ticket ID सेव करें! ट्रैक करें:_\n*TRACK {{ticketId}}*`,
-    gujarati:`✅ *રિપેર વિનંતી પક્કી થઈ!*\n\n🎫 *ટિકિટ ID:* {{ticketId}}\n👜 *બેગ:* {{bagType}}\n🔧 *સમસ્યા:* {{problem}}\n🏪 *સ્ટોર:* {{store}}\n\n📋 *આગળનું પગલું:* કામ શરૂ કરતા પહેલાં અમને *તમારી બેગ સ્ટોર પર જાતે* જોઈએ — અહીં ચેટિંગ ડ્રોપ-ઓફ નથી 😉.\n📊 શીટમાં સ્ટેટસ *રાહ જુએ* રહેશે, જ્યાં સુધી બેગ *{{store}}* પર ન પહોંચે.\n\n_ટિકિટ ID સાચવો! ટ્રૅક કરો:_\n*TRACK {{ticketId}}*`,
+    english: `✅ *Repair Request Confirmed!*\n\n🎫 *Ticket ID:* {{ticketId}}\n👜 *Bag:* {{bagType}}\n🔧 *Problem:* {{problem}}\n🏪 *Bring to:* {{store}}\n\n📋 *Next step:* Please bring your bag to *{{store}}* at your convenience (10 AM – 9 PM, Mon–Sun). Our team will inspect it and share a quotation — *repair work begins only after you approve the quote.*\n\n_Save your Ticket ID! Track anytime:_\n*TRACK {{ticketId}}*`,
+    hindi:   `✅ *रिपेयर अनुरोध पक्का हो गया!*\n\n🎫 *टिकट ID:* {{ticketId}}\n👜 *बैग:* {{bagType}}\n🔧 *समस्या:* {{problem}}\n🏪 *स्टोर:* {{store}}\n\n📋 *अगला कदम:* कृपया अपनी सुविधा अनुसार बैग *{{store}}* पर ले आएं (सुबह 10 – रात 9, सोम–रवि)। हमारी टीम जांच करके कोटेशन देगी — *आपकी मंज़ूरी के बाद ही रिपेयर शुरू होगी।*\n\n_अपना Ticket ID सेव करें! ट्रैक करें:_\n*TRACK {{ticketId}}*`,
+    gujarati:`✅ *રિપેર વિનંતી પક્કી થઈ!*\n\n🎫 *ટિકિટ ID:* {{ticketId}}\n👜 *બેગ:* {{bagType}}\n🔧 *સમસ્યા:* {{problem}}\n🏪 *સ્ટોર:* {{store}}\n\n📋 *આગળનું પગલું:* કૃપા કરીને આપની અનુકૂળતાએ બેગ *{{store}}* પર લઈ આવો (સવારે 10 – રાત 9, સોમ–રવિ). અમારી ટીમ ચકાસીને કોટેશન આપશે — *આપની મંજૂરી પછી જ રિપેર શરૂ થશે.*\n\n_ટિકિટ ID સાચવો! ટ્રૅક કરો:_\n*TRACK {{ticketId}}*`,
   },
 
   track_ask_id: {
@@ -206,9 +218,9 @@ const messages = {
 
   /** Default sheet row + outbound push when pending physical drop-off */
   status_physical_pending: {
-    english: `📋 *{{ticketId}}*\n\nWe're still *waiting for your bag in person* at *{{store}}*.\n_AI can chat here—but we need your bag physically in the shop before inspection & pricing._ 😉\n\nPlease bring your bag when you can. 🎒`,
-    hindi:   `📋 *{{ticketId}}*\n\nहमें अभी भी *आपके बैग का स्टोर पर ज़रूरी आना* है — *{{store}}*\n_AI यहाँ जवाब दे सकता है, पर जाँच और कीमत के लिए बैग दुकान पर होना चाहिए._ 😉\n\nकृपया जल्द बैग लाएँ। 🎒`,
-    gujarati:`📋 *{{ticketId}}*\n\nહજુ સુધી *તમારી બેગ સ્ટોર પર જાતે* નથી પહોંચી — *{{store}}*\n_AI અહીં વાત કરી શકે છે, પણ ચકાસણી અને ભાવ માટે બેગ દુકાન પર હોવી જરૂરી છે._ 😉\n\nકૃપા કરીને બને એટલી ઝડપથી બેગ લઈ આવો. 🎒`,
+    english: `📋 *{{ticketId}}*\n\nYour ticket is ready and waiting — the only thing missing is the bag itself! 🎒\n\nOur repair bench at *{{store}}* is holding a spot for it. Drop it off any day, *10 AM – 9 PM*, and we'll get started with an inspection and quote.`,
+    hindi:   `📋 *{{ticketId}}*\n\nआपका टिकट तैयार है — बस अब बैग का इंतज़ार है! 🎒\n\n*{{store}}* पर हमारी रिपेयर टीम ने इसके लिए जगह रखी है। किसी भी दिन *सुबह 10 – रात 9* बजे तक ले आएं — जांच और कोटेशन तुरंत शुरू करेंगे।`,
+    gujarati:`📋 *{{ticketId}}*\n\nઆપની ટિકિટ તૈયાર છે — હવે ફક્ત બેગની જ રાહ છે! 🎒\n\n*{{store}}* પર અમારી રિપેર ટીમે એના માટે જગ્યા રાખી છે. કોઈ પણ દિવસે *સવારે 10 – રાત 9* સુધી લઈ આવો — ચકાસણી અને કોટેશન તરત શરૂ કરીશું.`,
   },
 
   /** Any non-standard wording staff chose — still notifies via poller/track */
@@ -237,9 +249,9 @@ const messages = {
   },
 
   status_ready_pickup: {
-    english: `🟢 *Your bag is READY for Pickup!* 🎉\n\n🎫 Ticket: *{{ticketId}}*\n🏪 Store: *{{store}}*\n⏰ Timings: 10 AM – 8 PM (Mon–Sun)\n\n{{afterPhotoText}}\n\n_Please bring this message when you collect your bag._`,
-    hindi:   `🟢 *आपका बैग PICKUP के लिए READY है!* 🎉\n\n🎫 टिकट: *{{ticketId}}*\n🏪 स्टोर: *{{store}}*\n⏰ समय: सुबह 10 – रात 8 (सोम–रवि)\n\n{{afterPhotoText}}\n\n_बैग लेते समय यह मैसेज साथ लाएं।_`,
-    gujarati:`🟢 *આપની બેગ Pickup માટે READY છે!* 🎉\n\n🎫 ટિકિટ: *{{ticketId}}*\n🏪 સ્ટોર: *{{store}}*\n⏰ સમય: સવારે 10 – રાત 8 (સોમ–રવિ)\n\n{{afterPhotoText}}\n\n_બેગ લેવા સમયે આ મેસેજ સાથે લાવજો._`,
+    english: `🟢 *Your bag is READY for Pickup!* 🎉\n\n🎫 Ticket: *{{ticketId}}*\n🏪 Store: *{{store}}*\n⏰ Timings: 10 AM – 9 PM (Mon–Sun)\n\n{{afterPhotoText}}\n\n_Please bring this message when you collect your bag._`,
+    hindi:   `🟢 *आपका बैग PICKUP के लिए READY है!* 🎉\n\n🎫 टिकट: *{{ticketId}}*\n🏪 स्टोर: *{{store}}*\n⏰ समय: सुबह 10 – रात 9 (सोम–रवि)\n\n{{afterPhotoText}}\n\n_बैग लेते समय यह मैसेज साथ लाएं।_`,
+    gujarati:`🟢 *આપની બેગ Pickup માટે READY છે!* 🎉\n\n🎫 ટિકિટ: *{{ticketId}}*\n🏪 સ્ટોર: *{{store}}*\n⏰ સમય: સવારે 10 – રાત 9 (સોમ–રવિ)\n\n{{afterPhotoText}}\n\n_બેગ લેવા સમયે આ મેસેજ સાથે લાવજો._`,
   },
 
   status_cannot_repair: {
@@ -258,9 +270,9 @@ const messages = {
   },
 
   store_intro: {
-    english: `🗺️ *Our Stores — Chanakya Bag Studio*\n\nWe have *2 stores* in Vadodara.\n⏰ *10 AM – 8 PM* (Mon – Sun)\n\nPick a store below — we’ll open *Google Maps driving directions* to that door.`,
-    hindi:   `🗺️ *हमारे स्टोर — Chanakya Bag Studio*\n\nवडोदरा में *2 स्टोर।*\n⏰ *सुबह 10 – रात 8* (सोम – रवि)\n\nनीचे स्टोर चुनें — *Google Maps दिशा–निर्देश* खुलेंगे।`,
-    gujarati:`🗺️ *અમારા સ્ટોર — Chanakya Bag Studio*\n\nવડોદરામાં *2 સ્ટોર.*\n⏰ *સવારે 10 – રાત 8* (સોમ–રવિ)\n\nનીચે સ્ટોર પસંદ કરો — *Google Maps દિશા* ખુલશે.`,
+    english: `🗺️ *Our Stores — Chanakya Bag Studio*\n\nWe have *2 stores* in Vadodara.\n⏰ *10 AM – 9 PM* (Mon – Sun)\n\nPick a store below — we’ll open *Google Maps driving directions* to that door.`,
+    hindi:   `🗺️ *हमारे स्टोर — Chanakya Bag Studio*\n\nवडोदरा में *2 स्टोर।*\n⏰ *सुबह 10 – रात 9* (सोम – रवि)\n\nनीचे स्टोर चुनें — *Google Maps दिशा–निर्देश* खुलेंगे।`,
+    gujarati:`🗺️ *અમારા સ્ટોર — Chanakya Bag Studio*\n\nવડોદરામાં *2 સ્ટોર.*\n⏰ *સવારે 10 – રાત 9* (સોમ–રવિ)\n\nનીચે સ્ટોર પસંદ કરો — *Google Maps દિશા* ખુલશે.`,
   },
 
   store_pick_directions: {
@@ -306,15 +318,15 @@ const messages = {
   },
 
   corporate_confirmed: {
-    english: `✅ *Enquiry Received!*\n\nThank you *{{name}}* from *{{company}}!*\n\nWe'll contact you within *4 hours* with a custom quote.\n\nFor urgent orders:\n${directoryWithEmail()}`,
-    hindi:   `✅ *इन्क्वायरी मिली!*\n\n*{{company}}* से *{{name}}* जी, धन्यवाद!\n\n*4 घंटे* में हम आपसे कस्टम कोटेशन के साथ संपर्क करेंगे।\n\nअर्जेंट ऑर्डर:\n${directoryWithEmail()}`,
-    gujarati:`✅ *એન્ક્વાયરી મળી!*\n\n*{{company}}* થી *{{name}}*, આભાર!\n\n*4 કલાક*માં અમે કસ્ટમ કોટેશન સાથે આપનો સંપર્ક કરીશું.\n\nઅર્જન્ટ ઓર્ડર માટે:\n${directoryWithEmail()}`,
+    english: `✅ *Enquiry Received!*\n\nThank you *{{name}}* from *{{company}}!*\n\nWe'll contact you within *18 hours* with a custom quote.\n\nFor urgent orders:\n${directoryWithEmail()}`,
+    hindi:   `✅ *इन्क्वायरी मिली!*\n\n*{{company}}* से *{{name}}* जी, धन्यवाद!\n\n*18 घंटे* में हम आपसे कस्टम कोटेशन के साथ संपर्क करेंगे।\n\nअर्जेंट ऑर्डर:\n${directoryWithEmail()}`,
+    gujarati:`✅ *એન્ક્વાયરી મળી!*\n\n*{{company}}* થી *{{name}}*, આભાર!\n\n*18 કલાક*માં અમે કસ્ટમ કોટેશન સાથે આપનો સંપર્ક કરીશું.\n\nઅર્જન્ટ ઓર્ડર માટે:\n${directoryWithEmail()}`,
   },
 
   escalate_message: {
-    english: `Sure! Connecting you to our team. 👋\n\nYou can reach us directly:\n\n${directoryWithEmail()}\n\n⏰ Available: 10 AM – 8 PM\n\nType *menu* anytime to restart the chatbot.`,
-    hindi:   `बिल्कुल! आपको हमारी टीम से जोड़ रहे हैं। 👋\n\nसीधे संपर्क करें:\n\n${directoryWithEmail()}\n\n⏰ समय: सुबह 10 बजे – रात 8 बजे\n\nचैटबॉट दोबारा शुरू करने के लिए *menu* टाइप करें।`,
-    gujarati:`ચોક્કસ! તમને અમારી ટીમ સાથે જોડી રહ્યા છીએ. 👋\n\nસીધો સંપર્ક કરો:\n\n${directoryWithEmail()}\n\n⏰ સમય: સવારે 10 – રાત 8\n\nચેટબોટ ફરીથી શરૂ કરવા *menu* ટાઇપ કરો.`,
+    english: `Sure! Connecting you to our team. 👋\n\nYou can reach us directly:\n\n${directoryWithEmail()}\n\n⏰ Available: 10 AM – 9 PM\n\nType *menu* anytime to restart the chatbot.`,
+    hindi:   `बिल्कुल! आपको हमारी टीम से जोड़ रहे हैं। 👋\n\nसीधे संपर्क करें:\n\n${directoryWithEmail()}\n\n⏰ समय: सुबह 10 बजे – रात 9 बजे\n\nचैटबॉट दोबारा शुरू करने के लिए *menu* टाइप करें।`,
+    gujarati:`ચોક્કસ! તમને અમારી ટીમ સાથે જોડી રહ્યા છીએ. 👋\n\nસીધો સંપર્ક કરો:\n\n${directoryWithEmail()}\n\n⏰ સમય: સવારે 10 – રાત 9\n\nચેટબોટ ફરીથી શરૂ કરવા *menu* ટાઇપ કરો.`,
   },
 
   fallback_once: {
@@ -336,9 +348,9 @@ const messages = {
   },
 
   pickup_reminder: {
-    english: `👋 Reminder from *Chanakya Bag Studio!*\n\nYour repaired bag *(Ticket: {{ticketId}})* has been ready for *{{days}} days* at *{{store}}.*\n\nPlease collect at your earliest.\n⏰ Store: 10 AM – 8 PM daily\n${defaultCallLine()}`,
-    hindi:   `👋 *Chanakya Bag Studio* से अनुस्मारक!\n\nआपका रिपेयर किया हुआ बैग *(टिकट: {{ticketId}})* पिछले *{{days}} दिनों* से *{{store}}* में तैयार है।\n\nकृपया जल्द लेने आएं।\n⏰ स्टोर: सुबह 10 – रात 8\n${defaultCallLine()}`,
-    gujarati:`👋 *Chanakya Bag Studio* તરફથી યાદ અપાવીએ છીએ!\n\nઆપની રિપેર થયેલી બેગ *(ટિકિટ: {{ticketId}})* પાછલા *{{days}} દિવસથી* *{{store}}* પર તૈયાર છે.\n\nકૃપા કરીને ટૂંક સમયમાં લઈ આવો.\n⏰ સ્ટોર: સવારે 10 – રાત 8\n${defaultCallLine()}`,
+    english: `👋 Reminder from *Chanakya Bag Studio!*\n\nYour repaired bag *(Ticket: {{ticketId}})* has been ready for *{{days}} days* at *{{store}}.*\n\nPlease collect at your earliest.\n⏰ Store: 10 AM – 9 PM daily\n${defaultCallLine()}`,
+    hindi:   `👋 *Chanakya Bag Studio* से अनुस्मारक!\n\nआपका रिपेयर किया हुआ बैग *(टिकट: {{ticketId}})* पिछले *{{days}} दिनों* से *{{store}}* में तैयार है।\n\nकृपया जल्द लेने आएं।\n⏰ स्टोर: सुबह 10 – रात 9\n${defaultCallLine()}`,
+    gujarati:`👋 *Chanakya Bag Studio* તરફથી યાદ અપાવીએ છીએ!\n\nઆપની રિપેર થયેલી બેગ *(ટિકિટ: {{ticketId}})* પાછલા *{{days}} દિવસથી* *{{store}}* પર તૈયાર છે.\n\nકૃપા કરીને ટૂંક સમયમાં લઈ આવો.\n⏰ સ્ટોર: સવારે 10 – રાત 9\n${defaultCallLine()}`,
   },
 
   // ── Common UI strings used across flows ──

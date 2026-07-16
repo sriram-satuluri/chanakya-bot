@@ -6,7 +6,7 @@ const { CATEGORIES, categoryUrl, browseAllUrl, CATALOG_SITE } = require('../cons
 const M = require('../messages/index');
 
 // We deep-link customers to the website rather than try to render 100+ products
-// inside WhatsApp — the website is the live source of truth (chanakyacorporate.com).
+// inside WhatsApp — the website is the live source of truth (front.chanakyacorporate.com).
 
 async function handleCatalogFlow(phone, text, session, intent = null) {
   const lang = session.language || 'english';
@@ -123,15 +123,15 @@ async function sendCategoryLink(phone, lang, cat) {
     english:
       `Here's our full range of *${display}* — tap the link to browse on our website:\n\n${url}\n\n` +
       `💡 *Online se Sasta Offline Store!*\nVisit our stores to see them in person:\n` +
-      `⏰ 10 AM – 8 PM (Mon – Sun)\n${defaultCallLine()}`,
+      `⏰ 10 AM – 9 PM (Mon – Sun)\n${defaultCallLine()}`,
     hindi:
       `यहाँ है *${display}* की पूरी range — link पर tap करके website पर देखिए:\n\n${url}\n\n` +
       `💡 *Online से सस्ता Offline Store!*\nखुद देखने स्टोर पर आइए:\n` +
-      `⏰ सुबह 10 – रात 8 (सोम–रवि)\n${defaultCallLine()}`,
+      `⏰ सुबह 10 – रात 9 (सोम–रवि)\n${defaultCallLine()}`,
     gujarati:
       `અહીં છે *${display}* ની આખી range — link પર tap કરીને website પર જુઓ:\n\n${url}\n\n` +
       `💡 *Online થી સસ્તું Offline Store!*\nરૂબરૂ જોવા સ્ટોર પર આવો:\n` +
-      `⏰ સવારે 10 – રાત 8 (સોમ–રવિ)\n${defaultCallLine()}`,
+      `⏰ સવારે 10 – રાત 9 (સોમ–રવિ)\n${defaultCallLine()}`,
   };
   await sendTextMessage(phone, body[lang] || body.english);
 
@@ -162,13 +162,13 @@ async function sendBrowseAll(phone, lang) {
   const msg = {
     english:
       `🛍️ Our *full catalogue* is online — browse hundreds of products with photos and prices:\n\n${url}\n\n` +
-      `💡 *Online se Sasta Offline Store!*\nVisit our stores: 10 AM – 8 PM\n${defaultCallLine()}`,
+      `💡 *Online se Sasta Offline Store!*\nVisit our stores: 10 AM – 9 PM\n${defaultCallLine()}`,
     hindi:
       `🛍️ हमारा *पूरा catalogue* online है — सैकड़ों products फोटो और कीमत के साथ:\n\n${url}\n\n` +
-      `💡 *Online से सस्ता Offline Store!*\nस्टोर: सुबह 10 – रात 8\n${defaultCallLine()}`,
+      `💡 *Online से सस्ता Offline Store!*\nस्टोर: सुबह 10 – रात 9\n${defaultCallLine()}`,
     gujarati:
       `🛍️ અમારું *આખું catalogue* online છે — સેંકડો products ફોટો અને કિંમત સાથે:\n\n${url}\n\n` +
-      `💡 *Online થી સસ્તું Offline Store!*\nStore: સવારે 10 – રાત 8\n${defaultCallLine()}`,
+      `💡 *Online થી સસ્તું Offline Store!*\nStore: સવારે 10 – રાત 9\n${defaultCallLine()}`,
   };
   await sendTextMessage(phone, msg[lang] || msg.english);
 

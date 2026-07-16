@@ -33,3 +33,7 @@ tmp/
 scratch/
 # NB: Chanakya_Terms_and_Conditions.{docx,pdf} ARE tracked — they're the
 # canonical business source for the T&Cs. Do not add them here.
+
+# Personal reference docs — generated for local use only, not repo content.
+/Go-Live-Steps.pdf
+/WhatsApp-Bot-Cost-Summary.pdf
