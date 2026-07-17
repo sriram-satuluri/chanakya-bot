@@ -2,7 +2,9 @@ const { google } = require('googleapis');
 const {
   REPAIR_TICKET_STATUSES,
   DEFAULT_REPAIR_TICKET_STATUS,
+  canonicalStatus,
 } = require('../constants/repairTicketStatuses');
+const { formatIST, formatISTDate, parseISTString } = require('../utils/istTime');
 
 /** Max rows fetched for repair sheet (grow if needed). */
 const TICKETS_ROW_CAP = Number(process.env.SHEETS_TICKETS_MAX_ROWS) || 2500;
@@ -136,8 +138,8 @@ async function createRepairTicket(data) {
     DEFAULT_REPAIR_TICKET_STATUS,
     photoCell,                                                  // constructed by beforePhotoSheetCell; not user text
     '',
-    new Date().toISOString().slice(0, 16).replace('T', ' '),
-    new Date().toISOString().slice(0, 16).replace('T', ' '),
+    formatIST(),
+    formatIST(),
     '',
     safeUserText(data.language || 'english', 30),
     '',
@@ -215,8 +217,8 @@ async function getChangedTickets(lastChecked) {
   const rows = await readTicketRows();
   const changed = [];
   for (let i = 1; i < rows.length; i++) {
-    const updatedAt = rows[i][10];
-    if (updatedAt && new Date(updatedAt) > lastChecked) {
+    const updatedAt = parseISTString(rows[i][10]);
+    if (updatedAt && updatedAt > lastChecked) {
       changed.push({
         ticketId:      rows[i][0],
         customerName:  rows[i][1],
@@ -240,16 +242,16 @@ async function getUncollectedTickets(daysThreshold = 7) {
   cutoff.setDate(cutoff.getDate() - daysThreshold);
   const result = [];
   for (let i = 1; i < rows.length; i++) {
-    if (rows[i][6] === 'Ready for Pickup') {
-      const updated = new Date(rows[i][10]);
-      if (updated < cutoff) {
+    if (canonicalStatus(rows[i][6]) === 'Ready for Pickup') {
+      const updated = parseISTString(rows[i][10]);
+      if (updated && updated < cutoff) {
         result.push({
           ticketId:    rows[i][0],
           customerName:rows[i][1],
           phone:       rows[i][2],
           store:       rows[i][5],
           language:    rows[i][12],
-          daysWaiting: Math.floor((Date.now() - updated) / 86400000),
+          daysWaiting: Math.floor((Date.now() - updated.getTime()) / 86400000),
         });
       }
     }
@@ -257,12 +259,10 @@ async function getUncollectedTickets(daysThreshold = 7) {
   return result;
 }
 
-function parseSheetDate(value) {
-  if (!value) return null;
-  const s = String(value).trim();
-  const d = new Date(s.includes('T') ? s : s.replace(' ', 'T'));
-  return Number.isNaN(d.getTime()) ? null : d;
-}
+// Thin alias kept for call-site readability — sheet timestamps are always
+// IST wall-clock strings (see istTime.js), so parsing them means undoing
+// that shift, not a naive server-timezone-dependent Date() parse.
+const parseSheetDate = parseISTString;
 
 // Open tickets with no row update for staleHours+, and no reassurance ping in minHoursBetweenPings+
 async function getTicketsNeedingReassurance(options = {}) {
@@ -280,7 +280,7 @@ async function getTicketsNeedingReassurance(options = {}) {
   for (let i = 1; i < rows.length; i++) {
     const ticketId = rows[i][0]?.trim();
     if (!ticketId) continue;
-    const status = rows[i][6];
+    const status = canonicalStatus(rows[i][6]);
     if (skipStatuses.has(status)) continue;
 
     const updatedAt = parseSheetDate(rows[i][10]);
@@ -303,7 +303,7 @@ async function getTicketsNeedingReassurance(options = {}) {
 }
 
 async function setTicketReassuranceTime(rowIndex, at = new Date()) {
-  const ts = at.toISOString().slice(0, 16).replace('T', ' ');
+  const ts = formatIST(at);
   await sheets().spreadsheets.values.update({
     spreadsheetId: SHEET_ID(),
     range: `${TABS.TICKETS}!O${rowIndex}`,
@@ -391,7 +391,7 @@ async function createLead(data) {
     safeUserText(data.budget || '', 200),
     safeUserText(data.branding || '', 500),     // USER INPUT
     safeUserText(data.contactTime || '', 200),
-    new Date().toISOString().slice(0, 16).replace('T', ' '),
+    formatIST(),
     'New',
     '',
   ];
@@ -405,7 +405,7 @@ async function createLead(data) {
 
 async function logAnalytics(data) {
   const row = [
-    new Date().toISOString().slice(0, 19).replace('T', ' '),
+    formatIST(new Date(), { seconds: true }),
     safeUserText(data.phone, 20),
     safeUserText(data.language, 30),
     safeUserText(data.intent, 60),
@@ -429,7 +429,7 @@ async function addOrUpdateContact(phone, language) {
   await appendRow(TABS.CONTACTS, [
     safeUserText(phone, 20),
     safeUserText(language || 'english', 30),
-    new Date().toISOString().slice(0, 10),
+    formatISTDate(),
     'TRUE',
   ]);
 }
@@ -458,7 +458,7 @@ async function setContactOptIn(phone, optedIn, language = 'english') {
   await appendRow(TABS.CONTACTS, [
     safeUserText(phone, 20),
     safeUserText(language || 'english', 30),
-    new Date().toISOString().slice(0, 10),
+    formatISTDate(),
     optedIn ? 'TRUE' : 'FALSE',
   ]);
 }
@@ -493,7 +493,11 @@ async function getPendingBroadcasts() {
   const now = new Date();
   const pending = [];
   for (let i = 1; i < rows.length; i++) {
-    if (rows[i][6] === 'pending' && new Date(rows[i][2]) <= now) {
+    // Staff type sendAt by hand into the sheet as IST wall-clock time (that's
+    // what a human reads/writes) — parse it as IST, not as the server's own
+    // timezone, or a UTC-hosted bot would fire campaigns 5.5h late.
+    const sendAt = parseISTString(rows[i][2]);
+    if (rows[i][6] === 'pending' && sendAt && sendAt <= now) {
       pending.push({
         campaignName:  rows[i][0],
         templateName:  rows[i][1],

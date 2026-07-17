@@ -39,7 +39,7 @@ function directoryWithEmailForBranch(slug) {
 }
 
 function directoryWithEmailAndWebForBranch(slug) {
-  return `${directoryWithEmailForBranch(slug)}\n🌐 www.thebagsandgifts.shop`;
+  return `${directoryWithEmailForBranch(slug)}\n🌐 front.chanakyacorporate.com`;
 }
 
 function directoryWithEmail() {
@@ -47,7 +47,7 @@ function directoryWithEmail() {
 }
 
 function directoryWithEmailAndWeb() {
-  return `${directoryWithEmail()}\n🌐 www.thebagsandgifts.shop`;
+  return `${directoryWithEmail()}\n🌐 front.chanakyacorporate.com`;
 }
 
 /** @param {'store_alkapuri'|'store_sursagar'} repairStoreId */

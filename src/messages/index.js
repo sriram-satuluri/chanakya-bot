@@ -137,9 +137,9 @@ const messages = {
 
   // ── 1-line T&C reminders shown after critical confirmations ──
   terms_reminder_repair: {
-    english: `_📜 By submitting this repair ticket you accept our Terms (drop-off in store, 30-day free holding, items inside not our responsibility).{{terms_url_suffix}}_`,
-    hindi:   `_📜 यह रिपेयर टिकट जमा करके आप हमारी Terms स्वीकार करते हैं (बैग स्टोर पर लाना, 30 दिन मुफ्त holding, अंदर रखी चीज़ें जिम्मेदारी नहीं).{{terms_url_suffix}}_`,
-    gujarati:`_📜 આ રિપેર ટિકિટ સબમિટ કરીને તમે અમારી Terms સ્વીકારો છો (બેગ સ્ટોર પર લાવવી, 30 દિવસ મફત holding, અંદર રાખેલી વસ્તુઓની જવાબદારી નથી).{{terms_url_suffix}}_`,
+    english: `_📜 By submitting this repair ticket you accept our Terms (drop-off in store, 30-day free holding, items inside not our responsibility). Type *terms* anytime to read them._`,
+    hindi:   `_📜 यह रिपेयर टिकट जमा करके आप हमारी Terms स्वीकार करते हैं (बैग स्टोर पर लाना, 30 दिन मुफ्त holding, अंदर रखी चीज़ें जिम्मेदारी नहीं)। कभी भी *terms* टाइप करके पढ़ें।_`,
+    gujarati:`_📜 આ રિપેર ટિકિટ સબમિટ કરીને તમે અમારી Terms સ્વીકારો છો (બેગ સ્ટોર પર લાવવી, 30 દિવસ મફત holding, અંદર રાખેલી વસ્તુઓની જવાબદારી નથી). ગમે ત્યારે *terms* ટાઈપ કરીને વાંચો._`,
   },
 
   // Short caption sent alongside the T&Cs PDF that auto-attaches on the very
@@ -223,11 +223,13 @@ const messages = {
     gujarati:`📋 *{{ticketId}}*\n\nઆપની ટિકિટ તૈયાર છે — હવે ફક્ત બેગની જ રાહ છે! 🎒\n\n*{{store}}* પર અમારી રિપેર ટીમે એના માટે જગ્યા રાખી છે. કોઈ પણ દિવસે *સવારે 10 – રાત 9* સુધી લઈ આવો — ચકાસણી અને કોટેશન તરત શરૂ કરીશું.`,
   },
 
-  /** Any non-standard wording staff chose — still notifies via poller/track */
+  /** Any non-standard wording staff chose — still notifies via poller/track.
+   * NB: never promise a button here — buttons arrive as a separate message and
+   * can fail independently; typed commands (*track* / *menu*) always work. */
   status_poller_generic: {
-    english: `🔔 *Repair update*\n\n🎫 *Ticket:* {{ticketId}}\n📊 *Current status:*\n{{status}}\n🏪 *Store:* {{store}}\n\nYou can reply here anytime or tap *Track Repair* below.`,
-    hindi:   `🔔 *रिपेयर अपडेट*\n\n🎫 *टिकट:* {{ticketId}}\n📊 *वर्तमान स्थिति:*\n{{status}}\n🏪 *स्टोर:* {{store}}\n\nयहाँ जवाब दें या नीचे *Track* करें।`,
-    gujarati:`🔔 *રિપેર અપડેટ*\n\n🎫 *ટિકિટ:* {{ticketId}}\n📊 *સ્ટેટસ:*\n{{status}}\n🏪 *સ્ટોર:* {{store}}\n\nઅહીં જવાબ આપો અથવા નીચે *Track* કરો.`,
+    english: `🔔 *Repair update*\n\n🎫 *Ticket:* {{ticketId}}\n📊 *Current status:*\n{{status}}\n🏪 *Store:* {{store}}\n\nReply *track* anytime for full details, or *menu* for the main menu.`,
+    hindi:   `🔔 *रिपेयर अपडेट*\n\n🎫 *टिकट:* {{ticketId}}\n📊 *वर्तमान स्थिति:*\n{{status}}\n🏪 *स्टोर:* {{store}}\n\nपूरी जानकारी के लिए कभी भी *track* लिखें, या *menu* लिखकर मुख्य मेनू खोलें।`,
+    gujarati:`🔔 *રિપેર અપડેટ*\n\n🎫 *ટિકિટ:* {{ticketId}}\n📊 *સ્ટેટસ:*\n{{status}}\n🏪 *સ્ટોર:* {{store}}\n\nપૂરી વિગત માટે ગમે ત્યારે *track* લખો, અથવા *menu* લખીને મુખ્ય મેનુ ખોલો.`,
   },
 
   status_bag_received: {
@@ -342,9 +344,9 @@ const messages = {
   },
 
   flow_reminder: {
-    english: `👋 Hi! You were in the middle of something. Would you like to continue or start fresh?`,
-    hindi:   `👋 नमस्ते! आप कुछ बीच में छोड़ गए। जारी रखें या नए सिरे से शुरू करें?`,
-    gujarati:`👋 કેમ છો! તમે કંઈક વચ્ચે છોડી દીધું હતું. ચાલુ રાખવું છે કે નવેસરથી શરૂ કરવું?`,
+    english: `👋 Hi! You were in the middle of something — just reply here to continue, or type *menu* to start over.`,
+    hindi:   `👋 नमस्ते! आप कुछ बीच में छोड़ गए — जारी रखने के लिए यहीं जवाब दें, या *menu* लिखकर नए सिरे से शुरू करें।`,
+    gujarati:`👋 કેમ છો! તમે કંઈક વચ્ચે છોડ્યું હતું — ચાલુ રાખવા અહીં જ જવાબ આપો, અથવા *menu* લખીને નવેસરથી શરૂ કરો.`,
   },
 
   pickup_reminder: {

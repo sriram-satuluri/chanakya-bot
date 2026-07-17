@@ -235,12 +235,10 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
 
       clearSession(phone);
       await sendTextMessage(phone, confirmMsg);
-      // T&C reminder — informs customer of key obligations attached to the ticket.
-      // Include the "Read: <url>" tail only if TERMS_URL / TERMS_DOC_URL is set.
-      const termsReminder = M.fill(M.get('terms_reminder_repair', lang), {
-        terms_url_suffix: M.termsUrlSuffix(lang),
-      });
-      await sendTextMessage(phone, termsReminder).catch(() => {});
+      // T&C reminder — records the customer's acceptance of key obligations.
+      // No link here (T&Cs are already sent on the main menu); customers can
+      // type "terms" any time to re-read them.
+      await sendTextMessage(phone, M.get('terms_reminder_repair', lang)).catch(() => {});
 
       const branchSlug = branchSlugFromRepairStoreId(store);
       if (branchSlug) {

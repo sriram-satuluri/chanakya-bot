@@ -4,7 +4,7 @@ const { updateSession, clearSession } = require('../utils/sessionStore');
 const { handleEscalation } = require('./escalate');
 const M = require('../messages/index');
 const { tryParseTicketId } = require('../utils/ticketParse');
-const { DEFAULT_REPAIR_TICKET_STATUS } = require('../constants/repairTicketStatuses');
+const { DEFAULT_REPAIR_TICKET_STATUS, canonicalStatus } = require('../constants/repairTicketStatuses');
 const { defaultCallLine } = require('../constants/publicContact');
 
 const STATUS_MSG_KEY = {
@@ -34,10 +34,12 @@ const SHORT_STATUS = {
 };
 
 function shortStatusLabel(status, lang) {
-  const s = String(status ?? '').trim();
+  // canonicalStatus() forgives staff typos (trailing period, double space, case)
+  // so a near-miss still maps to the friendly label instead of raw sheet text.
+  const s = canonicalStatus(status);
   const entry = SHORT_STATUS[s];
   if (entry) return entry[lang] || entry.english;
-  return s || '—'; // custom status typed by staff — show it verbatim
+  return s || '—'; // genuinely custom status typed by staff — show it verbatim
 }
 
 async function handleTrackFlow(phone, text, session, intent = null) {
@@ -270,6 +272,11 @@ async function lookupAndSend(phone, ticketId /* canonical */, lang) {
     return sendButtonMessage(phone, M.get('interactive_choose_next', lang), notFoundButtons[lang] || notFoundButtons.english);
   }
 
+  // Normalise the sheet's status once — every comparison below is exact-match
+  // against canonical strings, and staff-typed variants ("…Store" vs "…Store.")
+  // must not knock us into the raw generic fallback.
+  ticket.status = canonicalStatus(ticket.status);
+
   // Special case: already picked up
   if (ticket.status === 'Picked Up') {
     const msg = {
@@ -304,18 +311,20 @@ async function lookupAndSend(phone, ticketId /* canonical */, lang) {
 
   await sendTextMessage(phone, statusMsg);
 
-  // Send after photo if ready for pickup
+  // Follow-ups (photo, action buttons) must never take down the whole reply —
+  // the status text has already been delivered. Log failures loudly instead.
   if (ticket.status === 'Ready for Pickup' && ticket.afterPhotoUrl) {
-    await sendImageMessage(phone, ticket.afterPhotoUrl, `After repair — Ticket ${ticketId}`);
+    await sendImageMessage(phone, ticket.afterPhotoUrl, `After repair — Ticket ${ticketId}`)
+      .catch((e) => console.error(`[TRACK] after-photo send failed (non-fatal) for ${ticketId}:`, e.message));
   }
 
-  // Action buttons
   const actionButtons = {
     english:  [{ id: 'btn_main_menu', title: '🏠 Main Menu' }, { id: 'btn_repair', title: '🔧 New Repair' }],
     hindi:    [{ id: 'btn_main_menu', title: '🏠 मुख्य मेनू' }, { id: 'btn_repair', title: '🔧 नई रिपेयर' }],
     gujarati: [{ id: 'btn_main_menu', title: '🏠 મુખ્ય મેનુ' }, { id: 'btn_repair', title: '🔧 નવી રિપેર' }],
   };
-  await sendButtonMessage(phone, M.get('interactive_choose_next', lang), actionButtons[lang] || actionButtons.english);
+  await sendButtonMessage(phone, M.get('interactive_choose_next', lang), actionButtons[lang] || actionButtons.english)
+    .catch((e) => console.error(`[TRACK] action-buttons send failed (non-fatal) for ${ticketId}:`, e.message));
 }
 
 module.exports = { handleTrackFlow };

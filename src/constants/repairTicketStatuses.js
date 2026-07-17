@@ -18,7 +18,36 @@ const REPAIR_TICKET_STATUSES = [
   'Picked Up',
 ];
 
+/**
+ * Normalise a status string for comparison: trim, collapse internal whitespace,
+ * strip trailing periods, casefold. Staff edit these cells by hand (and the
+ * dropdown text can drift by a period or a space), and an exact-string match
+ * breaking on "Store" vs "Store." once leaked the raw sheet wording to a
+ * customer instead of the polished message.
+ */
+function normalizeStatusKey(s) {
+  return String(s ?? '')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(/\.+$/, '')
+    .toLowerCase();
+}
+
+const _CANONICAL_BY_KEY = new Map(
+  REPAIR_TICKET_STATUSES.map((s) => [normalizeStatusKey(s), s]),
+);
+
+/**
+ * Map any staff-typed variant of a known status back to its canonical string.
+ * Unknown/custom statuses are returned trimmed but otherwise as-is.
+ */
+function canonicalStatus(s) {
+  return _CANONICAL_BY_KEY.get(normalizeStatusKey(s)) ?? String(s ?? '').trim();
+}
+
 module.exports = {
   REPAIR_TICKET_STATUSES,
   DEFAULT_REPAIR_TICKET_STATUS,
+  normalizeStatusKey,
+  canonicalStatus,
 };

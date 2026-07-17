@@ -5,7 +5,7 @@ const {
 } = require('../services/whatsapp');
 const { isServiceWindowOpen } = require('../utils/lastContactCache');
 const M = require('../messages/index');
-const { DEFAULT_REPAIR_TICKET_STATUS } = require('../constants/repairTicketStatuses');
+const { DEFAULT_REPAIR_TICKET_STATUS, canonicalStatus } = require('../constants/repairTicketStatuses');
 const {
   loadRepairStatusSnapshot,
   saveRepairStatusSnapshot,
@@ -73,7 +73,11 @@ async function pollStatusChanges() {
     parsed.push({
       ticketId,
       phone:           String(rows[i]?.[2] ?? '').trim(),
-      status:          nu,
+      // canonical form for all decision logic + customer messages (forgives
+      // staff typos like a missing trailing period); raw form only for
+      // change detection against the snapshot.
+      status:          canonicalStatus(nu),
+      rawStatus:       nu,
       store:           String(rows[i]?.[5] ?? '').trim(),
       language:        String(rows[i]?.[12] ?? '').trim() || 'english',
       estimatedPickup: String(rows[i]?.[11] ?? '').trim(),
@@ -88,7 +92,9 @@ async function pollStatusChanges() {
     // First observation: onboard snapshot only — no outbound message
     if (before === undefined) continue;
 
-    if (before === row.status) continue;
+    // Compare canonical forms: staff fixing a typo/period in the same status
+    // is a cosmetic edit, not a status change — never ping the customer for it.
+    if (canonicalStatus(before) === row.status) continue;
 
     // Staff marked collected → keep quiet (same behaviour as legacy poller)
     if (row.status === 'Picked Up') {
@@ -212,9 +218,15 @@ async function notifyCustomer(ticket) {
 
   await sendTextMessage(ticket.phone, msg);
 
+  // Follow-ups are best-effort: the status text has already been delivered.
+  // If a follow-up throws, do NOT propagate — the caller would treat the whole
+  // push as failed, restore the snapshot, and re-send the same status text
+  // every 15 minutes (duplicate spam) even though the customer already got it.
+  const rp = '***' + String(ticket.phone).slice(-4);
   if (ticket.status === 'Ready for Pickup' && ticket.afterPhotoUrl) {
     await sleep(400);
-    await sendImageMessage(ticket.phone, ticket.afterPhotoUrl, `After repair — ${ticket.ticketId}`);
+    await sendImageMessage(ticket.phone, ticket.afterPhotoUrl, `After repair — ${ticket.ticketId}`)
+      .catch((e) => console.error(`[POLLER] after-photo failed (non-fatal) ${ticket.ticketId} → ${rp}:`, e.message));
   }
 
   const footer = M.get('interactive_choose_next', lang);
@@ -224,9 +236,10 @@ async function notifyCustomer(ticket) {
     gujarati: [{ id: 'btn_track', title: '📍 રિપેર ટ્રૅક કરો' }, { id: 'btn_main_menu', title: '🏠 મુખ્ય મેનુ' }],
   };
   await sleep(300);
-  await sendButtonMessage(ticket.phone, footer, actionButtons[lang] || actionButtons.english);
+  await sendButtonMessage(ticket.phone, footer, actionButtons[lang] || actionButtons.english)
+    .catch((e) => console.error(`[POLLER] action-buttons failed (non-fatal) ${ticket.ticketId} → ${rp}:`, e.message));
 
-  console.log(`[POLLER] Pushed → ***${String(ticket.phone).slice(-4)} — ${ticket.ticketId} → "${ticket.status}"`);
+  console.log(`[POLLER] Pushed → ${rp} — ${ticket.ticketId} → "${ticket.status}"`);
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

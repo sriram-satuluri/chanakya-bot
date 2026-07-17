@@ -1,4 +1,5 @@
 const { getLastTicketNumber, setLastTicketNumber } = require('../services/sheets');
+const { currentISTYear } = require('./istTime');
 
 /**
  * Single-node mutex around counter increment. Prevents two simultaneous
@@ -11,7 +12,9 @@ let _generationChain = Promise.resolve();
 
 async function generateTicketId() {
   const run = _generationChain.then(async () => {
-    const year = new Date().getFullYear();
+    // IST, not the server's own timezone/locale — a UTC-hosted bot must still
+    // roll the ticket-ID year over at IST midnight (the business's local time).
+    const year = currentISTYear();
     const lastNum = await getLastTicketNumber();
     const nextNum = (lastNum || 0) + 1;
     await setLastTicketNumber(nextNum);
