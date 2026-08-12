@@ -25,10 +25,30 @@ const fs = require('fs');
 const path = require('path');
 const { envInt } = require('./env');
 
-/** How long a message id is remembered. Comfortably longer than Meta's
- *  practical retry window for a single message. */
-const TTL_MS = envInt('DEDUP_TTL_MINUTES', 30, { min: 1 }) * 60 * 1000;
-const MAX_ENTRIES = 5000;
+/**
+ * How long a message id is remembered.
+ *
+ * Meta retries an undelivered webhook with exponential backoff for up to
+ * SEVEN DAYS before discarding it, so the dedup window has to span that
+ * whole period to actually do its job. A short window (this was originally
+ * 30 minutes) only covers a quick restart: a crash followed by Meta's retry
+ * hours or days later would find the id expired and create a SECOND repair
+ * ticket for the same request — the exact bug this store exists to prevent.
+ *
+ * 7 days of ids is cheap at this volume: a few hundred messages a day is
+ * low thousands of entries at ~70 bytes each, i.e. a file well under a
+ * megabyte.
+ */
+const TTL_MS = envInt('DEDUP_TTL_MINUTES', 7 * 24 * 60, { min: 1 }) * 60 * 1000;
+
+/**
+ * Hard ceiling on remembered ids, as a backstop against unbounded growth if
+ * volume ever spikes. Sized to hold ~7 days of traffic for this shop with
+ * generous headroom; eviction is oldest-first (those are nearest expiry
+ * anyway) and is logged, because silently forgetting ids would quietly
+ * re-open the duplicate-ticket window.
+ */
+const MAX_ENTRIES = envInt('DEDUP_MAX_ENTRIES', 20000, { min: 100 });
 const FLUSH_DEBOUNCE_MS = 2000;
 
 function resolvePath() {
@@ -81,8 +101,19 @@ function prune(now = Date.now()) {
   const c = load();
   const cutoff = now - TTL_MS;
   for (const [id, ts] of c) if (ts < cutoff) c.delete(id);
-  // Hard cap in case of a burst before the TTL sweep catches up.
-  while (c.size > MAX_ENTRIES) c.delete(c.keys().next().value);
+
+  // Hard cap in case of a burst before the TTL sweep catches up. Evicting
+  // early shortens the effective dedup window, so say so loudly rather than
+  // silently re-opening the duplicate-ticket risk.
+  if (c.size > MAX_ENTRIES) {
+    const over = c.size - MAX_ENTRIES;
+    while (c.size > MAX_ENTRIES) c.delete(c.keys().next().value);
+    console.warn(
+      `[DEDUP] Evicted ${over} id(s) early to stay under DEDUP_MAX_ENTRIES=${MAX_ENTRIES}. `
+      + `The effective dedup window is now shorter than DEDUP_TTL_MINUTES — raise the cap `
+      + `if message volume has grown.`,
+    );
+  }
 }
 
 /**
