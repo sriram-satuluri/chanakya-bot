@@ -57,7 +57,8 @@ const { handleWebhook } = require('./webhook/handler');
 const { pollStatusChanges } = require('./jobs/statusPoller');
 const { runBroadcastQueue } = require('./jobs/broadcastRunner');
 const { sendPickupReminders } = require('./jobs/pickupReminder');
-const { sendStaleTicketReassurance } = require('./jobs/reassurancePing');
+// NB: jobs/reassurancePing.js is retired — superseded by the nudge inside
+// jobs/statusPoller.js. Intentionally no longer imported or scheduled.
 
 const app = express();
 
@@ -236,7 +237,9 @@ function cronOrDefault(envValue, fallback, name) {
   return fallback;
 }
 
-// Repair sheet status → WhatsApp push (default: every 15 min). Shorten with STATUS_POLL_CRON e.g. */5 * * * *
+// Proactive repair-status updates to opted-in customers (default: every 15 min).
+// The job itself enforces the 10:00-19:00 IST send window, so running it often
+// is harmless — out-of-window ticks just log and return.
 cron.schedule(
   cronOrDefault(process.env.STATUS_POLL_CRON, '*/15 * * * *', 'STATUS_POLL_CRON'),
   runOnceAtATime('statusPoller', pollStatusChanges),
@@ -245,14 +248,15 @@ cron.schedule(
 // Every hour: check broadcast queue
 cron.schedule('0 * * * *', runOnceAtATime('broadcastQueue', runBroadcastQueue));
 
-// Every day at 9am: send pickup reminders (bags uncollected 7+ days)
+// Every day at 9am: send pickup reminders (bags uncollected 7+ days).
+// Kept separate from the status updates above — it solves a different problem
+// (bag ready but not collected for a week), not a status change.
 cron.schedule('0 9 * * *', runOnceAtATime('pickupReminder', sendPickupReminders));
 
-// Daily reassurance when ticket row unchanged (updated_at) — default 04:30 UTC ≈ 10:00 IST
-cron.schedule(
-  cronOrDefault(process.env.REASSURANCE_CRON, '30 4 * * *', 'REASSURANCE_CRON'),
-  runOnceAtATime('reassurance', sendStaleTicketReassurance),
-);
+// NB: the daily "reassurancePing" job was retired — its "still working on it"
+// message is now the NUDGE_AFTER_DAYS nudge inside the status poller, which is
+// opt-in aware and template-based. src/jobs/reassurancePing.js is left in the
+// tree unused for reference; delete it once you're happy with the new flow.
 
 // ── Start server ──────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;

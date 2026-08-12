@@ -1,247 +1,240 @@
-const { readTicketRows, extractHttpsUrlFromCell } = require('../services/sheets');
 const {
-  sendTextMessage, sendImageMessage, sendButtonMessage, sendTemplateMessage,
-  isLikelySendablePhone, isOutsideWindowError,
-} = require('../services/whatsapp');
-const { isServiceWindowOpen } = require('../utils/lastContactCache');
+  getTicketsForProactiveUpdate,
+  recordProactiveUpdate,
+} = require('../services/sheets');
+const { sendTemplateMessage, isLikelySendablePhone } = require('../services/whatsapp');
 const M = require('../messages/index');
-const { DEFAULT_REPAIR_TICKET_STATUS, canonicalStatus } = require('../constants/repairTicketStatuses');
 const {
-  loadRepairStatusSnapshot,
-  saveRepairStatusSnapshot,
-  normalizeStatusCell,
-} = require('../utils/repairStatusSnapshotCache');
-
-const KNOWN_POLLER_MSG = {
-  'Bag Received':        'status_bag_received',
-  'Inspection Done':     'status_inspection_done',
-  'Repair In Progress':  'status_repair_in_progress',
-  'Repair Complete':     'status_repair_in_progress',
-  'Ready for Pickup':    'status_ready_pickup',
-  'Cannot Repair':       'status_cannot_repair',
-};
+  canonicalStatus, terminalStopReason, DEFAULT_REPAIR_TICKET_STATUS,
+} = require('../constants/repairTicketStatuses');
+const { istHour, formatIST } = require('../utils/istTime');
 
 /**
- * Reads every repair row, compares column G vs last persisted snapshot,
- * and sends WhatsApp when status text changes — even if updated_at wasn't edited.
+ * Proactive repair-status updates.
  *
- * Bootstrap: first time we see a ticket ID we save its status and skip push
- * so new tickets created by the bot don't ping the customer before staff edit.
+ * Sends ALWAYS go out as an approved WhatsApp Utility template — we no longer
+ * try to detect whether a free 24h service window is open, because Meta's
+ * 1 Oct 2026 pricing change bills in-window replies too, so the old
+ * free-vs-paid branch bought nothing but complexity and two code paths.
+ *
+ * Per-ticket state lives in repair_tickets Q-U (opted_in, last_status_sent,
+ * last_update_sent_at, stop_reason, consecutive_failure_count) — the sheet is
+ * the single source of truth, so this survives a redeploy with no local
+ * snapshot file to keep in sync.
+ *
+ * EXTERNAL SETUP REQUIRED: three Utility templates must exist and be approved
+ * in Meta Business Manager (en/hi/gu), each taking four body variables:
+ *   {{1}} customer name · {{2}} ticket id · {{3}} current status · {{4}} store
+ * Names are configurable via REPAIR_UPDATE_TEMPLATE_EN/HI/GU.
  */
+
+/** Only message customers between these IST hours (inclusive start, exclusive end). */
+const QUIET_START_HOUR = Number(process.env.PROACTIVE_START_HOUR) || 10;
+const QUIET_END_HOUR = Number(process.env.PROACTIVE_END_HOUR) || 19;
+
+/** No status change for this many days → send a "still in progress" nudge. */
+const NUDGE_AFTER_DAYS = Number(process.env.REPAIR_UPDATE_NUDGE_DAYS) || 3;
+
+/** Consecutive send failures for a number before we stop trying for that ticket. */
+const MAX_CONSECUTIVE_FAILURES = 3;
+
 /**
- * Which status changes trigger a proactive WhatsApp to the customer:
- *   smart      → DEFAULT. Push any status change while the customer's 24h
- *                service window is open (FREE). Once the window is closed,
- *                only "Ready for Pickup" goes out — via PICKUP_TEMPLATE_NAME
- *                if configured (paid utility template), else attempted
- *                free-form (Meta is the final authority on the window).
- *   off        → never message customers (pure pull model).
- *   ready_only → only "Ready for Pickup" pushes.
- *   all        → every status change regardless of window (needs templates).
- * The snapshot is still updated in every mode, so switching modes never
- * back-fires a backlog of old changes.
+ * Idempotency guard: never send twice for the same ticket inside this window,
+ * even if the status looks changed. Protects against the cron restarting
+ * immediately after a successful send (the sheet write may not have landed).
+ * Shorter than the poll interval's practical effect, so genuine changes are
+ * not meaningfully delayed.
  */
-function statusPushMode() {
-  const m = String(process.env.STATUS_PUSH_MODE || 'smart').trim().toLowerCase();
-  return ['smart', 'off', 'ready_only', 'all'].includes(m) ? m : 'smart';
+const MIN_RESEND_GAP_MS = 10 * 60 * 1000;
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+const TEMPLATE_BY_LANG = {
+  english:  () => process.env.REPAIR_UPDATE_TEMPLATE_EN?.trim() || 'repair_status_update_en',
+  hindi:    () => process.env.REPAIR_UPDATE_TEMPLATE_HI?.trim() || 'repair_status_update_hi',
+  gujarati: () => process.env.REPAIR_UPDATE_TEMPLATE_GU?.trim() || 'repair_status_update_gu',
+};
+const LANG_CODE = { english: 'en', hindi: 'hi', gujarati: 'gu' };
+
+/** Redacted by default; set PROACTIVE_LOG_FULL_PHONE=true if you need raw
+ *  numbers in logs for billing reconciliation. The wamid is logged either way
+ *  and is the key Meta's own reports are keyed on. */
+function logPhone(p) {
+  const s = String(p ?? '');
+  const full = String(process.env.PROACTIVE_LOG_FULL_PHONE || '').toLowerCase();
+  if (full === '1' || full === 'true') return s;
+  return s.length > 4 ? '***' + s.slice(-4) : '***';
+}
+
+function withinSendWindow(now = new Date()) {
+  const h = istHour(now);
+  return h >= QUIET_START_HOUR && h < QUIET_END_HOUR;
+}
+
+/**
+ * Decide whether this ticket is due for a send right now.
+ * @returns {{send: boolean, reason?: string, skip?: string}}
+ */
+function decideAction(t, now) {
+  const status = canonicalStatus(t.status);
+  const lastSent = canonicalStatus(t.lastStatusSent);
+  const statusChanged = Boolean(status) && status !== lastSent;
+  const terminal = terminalStopReason(status);
+
+  // Already collected — nothing useful left to say; close the ticket quietly.
+  // (A "your bag is ready" message here would be wrong, they already have it.)
+  if (terminal === 'completed' && status === 'Picked Up') {
+    return { send: false, skip: 'picked_up', stopReason: 'completed' };
+  }
+
+  // Idempotency: recently sent, regardless of what the status looks like.
+  if (t.lastUpdateSentAt && (now - t.lastUpdateSentAt.getTime()) < MIN_RESEND_GAP_MS) {
+    return { send: false, skip: 'recently_sent' };
+  }
+
+  // Bootstrap: nothing sent yet AND the ticket is still at its creation
+  // default. The customer got a confirmation message moments ago, so a paid
+  // template restating "awaiting drop-off" adds nothing. Record the baseline
+  // silently so the FIRST genuine status change is what reaches them.
+  // (If they opted in later, when the repair had already progressed, status
+  // won't be the default and they correctly get a catch-up message.)
+  if (!t.lastStatusSent && status === canonicalStatus(DEFAULT_REPAIR_TICKET_STATUS)) {
+    return { send: false, skip: 'bootstrap', baselineStatus: status };
+  }
+
+  if (statusChanged) return { send: true, reason: 'status_change', terminal };
+
+  // No change — is it time for a periodic reassurance nudge? Never nudge a
+  // ticket that has already reached a terminal status.
+  if (!terminal) {
+    const since = t.lastUpdateSentAt ? t.lastUpdateSentAt.getTime() : null;
+    if (since && (now - since) >= NUDGE_AFTER_DAYS * DAY_MS) {
+      return { send: true, reason: 'nudge', terminal: null };
+    }
+    // Never sent anything yet and status hasn't moved from what staff set at
+    // creation: wait for the first real change rather than pinging immediately.
+  }
+
+  return { send: false, skip: 'no_change' };
 }
 
 async function pollStatusChanges() {
-  let rows;
+  const now = new Date();
+
+  if (!withinSendWindow(now)) {
+    console.log(`[PROACTIVE] Outside send window (${QUIET_START_HOUR}:00-${QUIET_END_HOUR}:00 IST, now ${istHour(now)}:xx) — skipping.`);
+    return;
+  }
+
+  let tickets;
   try {
-    rows = await readTicketRows();
+    tickets = await getTicketsForProactiveUpdate();
   } catch (err) {
-    console.error('[POLLER] Sheets read error:', err.message);
+    console.error('[PROACTIVE] Sheets read error:', err.message);
     return;
   }
 
-  const pushMode = statusPushMode();
-
-  const prevSnap = loadRepairStatusSnapshot();
-  /** Ticket id → trimmed status column (authoritative Sheet state now) */
-  const nextSnap = {};
-
-  const parsed = [];
-
-  for (let i = 1; i < rows.length; i++) {
-    const ticketId = String(rows[i]?.[0] ?? '').trim();
-    if (!ticketId || !/^CHA-/i.test(ticketId)) continue;
-
-    const nu = normalizeStatusCell(rows[i]?.[6]);
-    nextSnap[ticketId] = nu;
-
-    parsed.push({
-      ticketId,
-      phone:           String(rows[i]?.[2] ?? '').trim(),
-      // canonical form for all decision logic + customer messages (forgives
-      // staff typos like a missing trailing period); raw form only for
-      // change detection against the snapshot.
-      status:          canonicalStatus(nu),
-      rawStatus:       nu,
-      store:           String(rows[i]?.[5] ?? '').trim(),
-      language:        String(rows[i]?.[12] ?? '').trim() || 'english',
-      estimatedPickup: String(rows[i]?.[11] ?? '').trim(),
-      afterPhotoUrl:   extractHttpsUrlFromCell(rows[i]?.[8]),
-    });
-  }
-
-  const pending = [];
-
-  for (const row of parsed) {
-    const before = prevSnap[row.ticketId];
-    // First observation: onboard snapshot only — no outbound message
-    if (before === undefined) continue;
-
-    // Compare canonical forms: staff fixing a typo/period in the same status
-    // is a cosmetic edit, not a status change — never ping the customer for it.
-    if (canonicalStatus(before) === row.status) continue;
-
-    // Staff marked collected → keep quiet (same behaviour as legacy poller)
-    if (row.status === 'Picked Up') {
-      console.log(`[POLLER] ${row.ticketId} → Picked Up (silent)`);
-      continue;
-    }
-
-    // Proactive-notification policy. In every case we still record the new
-    // status in the snapshot below (so re-enabling later doesn't blast a
-    // backlog); we only decide whether to PUSH.
-    if (pushMode === 'off') continue;
-    if (pushMode === 'ready_only' && row.status !== 'Ready for Pickup') continue;
-
-    // windowClosed rides along so notifyCustomer can pick free-form vs template.
-    row.windowClosed = !isServiceWindowOpen(row.phone);
-
-    if (pushMode === 'smart' && row.windowClosed && row.status !== 'Ready for Pickup') {
-      // Window closed → a free-form push would be rejected AND cost money as a
-      // template. Not worth it for intermediate statuses: the customer sees
-      // them for free via Track whenever they like. Only the pickup message
-      // is business-critical enough to send from our side.
-      console.log(`[POLLER] ${row.ticketId} → "${row.status}" — customer window closed; non-pickup push skipped (snapshot updated)`);
-      continue;
-    }
-
-    if (!isLikelySendablePhone(row.phone)) {
-      console.warn(`[POLLER] ${row.ticketId} status changed but phone is missing/invalid — skipping push`);
-      continue;
-    }
-
-    pending.push(row);
-  }
-
-  const finalSnap = { ...nextSnap };
-
-  if (pending.length === 0) {
-    saveRepairStatusSnapshot(finalSnap);
-    console.log(`[POLLER] No customer pushes this run (mode=${pushMode}); snapshot updated.`);
+  if (tickets.length === 0) {
+    console.log('[PROACTIVE] No opted-in tickets to consider.');
     return;
   }
 
-  console.log(`[POLLER] ${pending.length} status change(s) — sending WhatsApp…`);
+  let sent = 0, failed = 0, skipped = 0, stopped = 0;
 
-  for (const ticket of pending) {
+  for (const t of tickets) {
+    const decision = decideAction(t, now.getTime());
+
+    // Terminal-but-silent (already picked up): just close it out.
+    if (!decision.send && decision.stopReason) {
+      await recordProactiveUpdate(t.rowIndex, {
+        optedIn: false,
+        stopReason: decision.stopReason,
+        statusSent: t.status,
+      }).catch((e) => console.error(`[PROACTIVE] ${t.ticketId} stop-write failed:`, e.message));
+      console.log(`[PROACTIVE] ticket=${t.ticketId} stopped reason=${decision.stopReason} (no message needed)`);
+      stopped++;
+      continue;
+    }
+
+    // Bootstrap: record the baseline so the next real change is the first send.
+    if (!decision.send && decision.baselineStatus) {
+      await recordProactiveUpdate(t.rowIndex, { statusSent: decision.baselineStatus })
+        .catch((e) => console.error(`[PROACTIVE] ${t.ticketId} baseline-write failed:`, e.message));
+      skipped++;
+      continue;
+    }
+
+    if (!decision.send) { skipped++; continue; }
+
+    if (!isLikelySendablePhone(t.phone)) {
+      console.warn(`[PROACTIVE] ticket=${t.ticketId} has missing/invalid phone — skipping`);
+      skipped++;
+      continue;
+    }
+
+    const lang = LANG_CODE[t.language] ? t.language : 'english';
+    const templateName = TEMPLATE_BY_LANG[lang]();
+    const statusText = M.statusLabel(t.status, lang);
+
     try {
-      await notifyCustomer(ticket);
-      await sleep(700);
-    } catch (err) {
-      const metaCode = err.response?.data?.error?.code;
-      if (isOutsideWindowError(metaCode)) {
-        // Retrying free-form against a closed window fails identically every
-        // 15 min — keep the new status in the snapshot (no retry) and say why.
-        console.error(`[POLLER] ${ticket.ticketId}: 24h window closed — push dropped, no retry. `
-          + `Set PICKUP_TEMPLATE_NAME (approved utility template) to reach closed-window customers.`);
-      } else {
-        console.error(`[POLLER] Push failed (${ticket.ticketId}):`, err.message);
-        finalSnap[ticket.ticketId] = prevSnap[ticket.ticketId];
-      }
-    }
-  }
-
-  saveRepairStatusSnapshot(finalSnap);
-  console.log('[POLLER] Snapshot saved.');
-}
-
-/** Locale codes for the pickup template (must match the approved template's languages). */
-const TEMPLATE_LANG_CODE = { english: 'en', hindi: 'hi', gujarati: 'gu' };
-
-/**
- * Outbound WhatsApp when sheet status differs from cached value.
- */
-async function notifyCustomer(ticket) {
-  const lang = ticket.language || 'english';
-
-  // Closed window + Ready for Pickup: free-form would be rejected, so use the
-  // approved utility template if configured (template must have exactly two
-  // body variables: {{1}}=ticket id, {{2}}=store). Single message — no photo /
-  // buttons follow-ups, those are free-form and would bounce too.
-  if (ticket.windowClosed && ticket.status === 'Ready for Pickup') {
-    const tpl = process.env.PICKUP_TEMPLATE_NAME?.trim();
-    if (tpl) {
-      await sendTemplateMessage(ticket.phone, tpl, TEMPLATE_LANG_CODE[lang] || 'en', [{
+      const res = await sendTemplateMessage(t.phone, templateName, LANG_CODE[lang], [{
         type: 'body',
         parameters: [
-          { type: 'text', text: String(ticket.ticketId) },
-          { type: 'text', text: String(ticket.store || '—') },
+          { type: 'text', text: String(t.customerName || 'there').slice(0, 60) },
+          { type: 'text', text: String(t.ticketId) },
+          { type: 'text', text: String(statusText).slice(0, 200) },
+          { type: 'text', text: String(t.store || '—').slice(0, 100) },
         ],
       }]);
-      console.log(`[POLLER] Pushed pickup TEMPLATE → ***${String(ticket.phone).slice(-4)} — ${ticket.ticketId}`);
-      return;
+
+      const wamid = res?.messages?.[0]?.id || '?';
+      // Audit line — one per billable send, greppable as [PROACTIVE].
+      console.log(
+        `[PROACTIVE] ticket=${t.ticketId} phone=${logPhone(t.phone)} lang=${lang} `
+        + `template=${templateName} reason=${decision.reason} status=accepted wamid=${wamid} at=${formatIST(now)}`,
+      );
+      sent++;
+
+      const patch = { statusSent: t.status, sentAt: now, failureCount: 0 };
+      if (decision.terminal) {
+        // Ready for pickup / cannot repair: this was the final message.
+        patch.optedIn = false;
+        patch.stopReason = decision.terminal;
+        stopped++;
+        console.log(`[PROACTIVE] ticket=${t.ticketId} final message sent — stopping (reason=${decision.terminal})`);
+      }
+      await recordProactiveUpdate(t.rowIndex, patch);
+    } catch (err) {
+      failed++;
+      const nextFailures = (t.failureCount || 0) + 1;
+      const metaErr = err.response?.data?.error || {};
+      console.error(
+        `[PROACTIVE] ticket=${t.ticketId} phone=${logPhone(t.phone)} lang=${lang} `
+        + `template=${templateName} reason=${decision.reason} status=failed `
+        + `attempt=${nextFailures}/${MAX_CONSECUTIVE_FAILURES} code=${metaErr.code ?? '?'} msg=${err.message}`,
+      );
+
+      const patch = { failureCount: nextFailures };
+      if (nextFailures >= MAX_CONSECUTIVE_FAILURES) {
+        patch.optedIn = false;
+        patch.stopReason = 'delivery_failed';
+        stopped++;
+        console.error(
+          `[PROACTIVE] ticket=${t.ticketId} hit ${MAX_CONSECUTIVE_FAILURES} consecutive failures — `
+          + `updates stopped for this ticket (stop_reason=delivery_failed). Investigate the number.`,
+        );
+      }
+      await recordProactiveUpdate(t.rowIndex, patch)
+        .catch((e) => console.error(`[PROACTIVE] ${t.ticketId} failure-write failed:`, e.message));
     }
-    // No template configured: fall through and attempt free-form. Our window
-    // tracking is conservative (unknown = closed), so Meta may still accept;
-    // if it is truly closed, the caller drops it without retry.
+
+    // Gentle pacing so a backlog can't burst against the outbound rate limit.
+    await sleep(700);
   }
 
-  let statusMsgKey = KNOWN_POLLER_MSG[ticket.status];
-  if (!statusMsgKey) {
-    statusMsgKey =
-      ticket.status === DEFAULT_REPAIR_TICKET_STATUS
-        ? 'status_physical_pending'
-        : 'status_poller_generic';
-  }
-
-  let afterPhotoText = '';
-  if (ticket.status === 'Ready for Pickup' && ticket.afterPhotoUrl) {
-    afterPhotoText = lang === 'hindi'
-      ? `📸 *मरम्मत के बाद की फोटो:*`
-      : lang === 'gujarati'
-        ? `📸 *રીપેયર પછીની ફોટો:*`
-        : `📸 *After repair photo:*`;
-  }
-
-  const msg = M.fill(M.get(statusMsgKey, lang), {
-    ticketId:        ticket.ticketId,
-    store:           ticket.store || '—',
-    estimatedPickup: ticket.estimatedPickup || '—',
-    afterPhotoText,
-    status:          ticket.status,
-  });
-
-  await sendTextMessage(ticket.phone, msg);
-
-  // Follow-ups are best-effort: the status text has already been delivered.
-  // If a follow-up throws, do NOT propagate — the caller would treat the whole
-  // push as failed, restore the snapshot, and re-send the same status text
-  // every 15 minutes (duplicate spam) even though the customer already got it.
-  const rp = '***' + String(ticket.phone).slice(-4);
-  if (ticket.status === 'Ready for Pickup' && ticket.afterPhotoUrl) {
-    await sleep(400);
-    await sendImageMessage(ticket.phone, ticket.afterPhotoUrl, `After repair — ${ticket.ticketId}`)
-      .catch((e) => console.error(`[POLLER] after-photo failed (non-fatal) ${ticket.ticketId} → ${rp}:`, e.message));
-  }
-
-  const footer = M.get('interactive_choose_next', lang);
-  const actionButtons = {
-    english:  [{ id: 'btn_track', title: '📍 Track Repair' },     { id: 'btn_main_menu', title: '🏠 Main Menu' }],
-    hindi:    [{ id: 'btn_track', title: '📍 ट्रैक करें' },        { id: 'btn_main_menu', title: '🏠 मुख्य मेनू' }],
-    gujarati: [{ id: 'btn_track', title: '📍 રિપેર ટ્રૅક કરો' }, { id: 'btn_main_menu', title: '🏠 મુખ્ય મેનુ' }],
-  };
-  await sleep(300);
-  await sendButtonMessage(ticket.phone, footer, actionButtons[lang] || actionButtons.english)
-    .catch((e) => console.error(`[POLLER] action-buttons failed (non-fatal) ${ticket.ticketId} → ${rp}:`, e.message));
-
-  console.log(`[POLLER] Pushed → ${rp} — ${ticket.ticketId} → "${ticket.status}"`);
+  console.log(`[PROACTIVE] Run complete — sent:${sent} failed:${failed} skipped:${skipped} stopped:${stopped}`);
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-module.exports = { pollStatusChanges };
+module.exports = { pollStatusChanges, decideAction, withinSendWindow };

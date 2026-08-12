@@ -7,6 +7,10 @@ const {
   directoryWithEmail,
   directoryWithEmailAndWeb,
 } = require('../constants/publicContact');
+const {
+  DEFAULT_REPAIR_TICKET_STATUS,
+  canonicalStatus,
+} = require('../constants/repairTicketStatuses');
 
 // Random casual greeting prefixes shown ONCE per session, before the welcome block.
 // Kept secular and community-neutral.
@@ -418,7 +422,84 @@ const messages = {
     hindi:   `✅ स्वागत है! अब आपको हमारे offers और updates फिर से मिलेंगे।\n\nकभी भी unsubscribe करने के लिए *STOP* टाइप करें।`,
     gujarati:`✅ સ્વાગત છે! હવે તમને અમારા offers અને updates ફરી મળશે.\n\nUnsubscribe કરવા ગમે ત્યારે *STOP* ટાઈપ કરો.`,
   },
+
+  /** Appended to opt_out_confirmed when the customer still has an open,
+   *  opted-in repair ticket — bare STOP only stops marketing, so we say so
+   *  plainly rather than letting them assume all messages have stopped. */
+  opt_out_repair_still_on: {
+    english: `\n\n🔧 Note: you'll still get updates on your open repair ticket. Reply *stop updates* if you'd like those turned off too.`,
+    hindi:   `\n\n🔧 ध्यान दें: आपकी चालू रिपेयर टिकट के अपडेट आते रहेंगे। वे भी बंद करने हों तो *अपडेट बंद* भेजें।`,
+    gujarati:`\n\n🔧 નોંધ: તમારી ચાલુ રિપેર ટિકિટના અપડેટ આવતા રહેશે. એ પણ બંધ કરવા હોય તો *અપડેટ બંધ* મોકલો.`,
+  },
+
+  // ── Language selection (persisted per phone) ──
+  /** First-contact picker. Deliberately shows all three languages at once —
+   *  we don't yet know which one they read. */
+  language_pick: {
+    english: `🙏 Welcome to *Chanakya – The Bag Studio!*\n\nPlease choose your language:\nकृपया अपनी भाषा चुनें:\nકૃપા કરીને તમારી ભાષા પસંદ કરો:`,
+    hindi:   `🙏 Welcome to *Chanakya – The Bag Studio!*\n\nPlease choose your language:\nकृपया अपनी भाषा चुनें:\nકૃપા કરીને તમારી ભાષા પસંદ કરો:`,
+    gujarati:`🙏 Welcome to *Chanakya – The Bag Studio!*\n\nPlease choose your language:\nकृपया अपनी भाषा चुनें:\nકૃપા કરીને તમારી ભાષા પસંદ કરો:`,
+  },
+
+  language_saved: {
+    english: `✅ Language set to *English*. You can change it anytime by typing *language*.`,
+    hindi:   `✅ भाषा *हिंदी* चुनी गई। कभी भी बदलने के लिए *language* टाइप करें।`,
+    gujarati:`✅ ભાષા *ગુજરાતી* પસંદ થઈ. ગમે ત્યારે બદલવા *language* ટાઈપ કરો.`,
+  },
+
+  // ── Proactive repair-update opt-in (per ticket) ──
+  repair_updates_ask: {
+    english: `🔔 Would you like *WhatsApp updates* as your repair progresses?\n\nOr you can simply check anytime yourself by tapping *Track My Repair*.`,
+    hindi:   `🔔 क्या आप रिपेयर की प्रगति पर *WhatsApp अपडेट* चाहेंगे?\n\nया आप कभी भी *ट्रैक करें* पर टैप करके खुद देख सकते हैं।`,
+    gujarati:`🔔 શું તમે રિપેરની પ્રગતિ પર *WhatsApp અપડેટ* ઈચ્છો છો?\n\nઅથવા તમે ગમે ત્યારે *ટ્રૅક કરો* પર ટૅપ કરીને જાતે જોઈ શકો છો.`,
+  },
+
+  repair_updates_on_confirm: {
+    english: `✅ Done — we'll message you here as your repair moves forward.\n\nReply *stop updates* anytime to turn these off.`,
+    hindi:   `✅ हो गया — रिपेयर आगे बढ़ने पर हम आपको यहीं मैसेज करेंगे।\n\nबंद करने के लिए कभी भी *अपडेट बंद* भेजें।`,
+    gujarati:`✅ થઈ ગયું — રિપેર આગળ વધતાં અમે તમને અહીં મેસેજ કરીશું.\n\nબંધ કરવા ગમે ત્યારે *અપડેટ બંધ* મોકલો.`,
+  },
+
+  repair_updates_off_confirm: {
+    english: `✅ Repair updates turned off. You can still check anytime with *track*, and reply *resume updates* to turn them back on.`,
+    hindi:   `✅ रिपेयर अपडेट बंद कर दिए गए। *track* लिखकर कभी भी देख सकते हैं, और *अपडेट चालू* भेजकर दोबारा चालू कर सकते हैं।`,
+    gujarati:`✅ રિપેર અપડેટ બંધ કરી દીધા. *track* લખીને ગમે ત્યારે જોઈ શકો છો, અને *અપડેટ ચાલુ* મોકલીને ફરી ચાલુ કરી શકો છો.`,
+  },
+
+  repair_updates_none_open: {
+    english: `You don't have an open repair with us right now, so there are no updates to change. Tap *Repair My Bag* to book one.`,
+    hindi:   `अभी आपकी कोई चालू रिपेयर नहीं है, इसलिए बदलने के लिए कोई अपडेट नहीं। नई रिपेयर के लिए *बैग रिपेयर करें* पर टैप करें।`,
+    gujarati:`અત્યારે તમારી કોઈ ચાલુ રિપેર નથી, તેથી બદલવા માટે કોઈ અપડેટ નથી. નવી રિપેર માટે *બેગ રિપેર કરો* પર ટૅપ કરો.`,
+  },
 };
+
+/**
+ * Human-readable status text, localised — used both for the {{3}} variable in
+ * the repair-status Utility templates and for the ticket-picker row labels.
+ * An unrecognised (staff-typed) status falls through verbatim so nothing is
+ * ever silently blanked.
+ */
+const STATUS_LABELS = {
+  [DEFAULT_REPAIR_TICKET_STATUS]: {
+    english: 'Awaiting drop-off at the store',
+    hindi:   'स्टोर पर बैग आने का इंतज़ार',
+    gujarati:'સ્ટોર પર બેગ આવવાની રાહ',
+  },
+  'Bag Received':       { english: 'Bag received at the store', hindi: 'बैग स्टोर पर मिल गया',       gujarati: 'બેગ સ્ટોર પર મળી ગઈ' },
+  'Inspection Done':    { english: 'Inspection complete',       hindi: 'जाँच पूरी हुई',              gujarati: 'ચકાસણી પૂર્ણ' },
+  'Repair In Progress': { english: 'Repair in progress',        hindi: 'रिपेयर चल रही है',           gujarati: 'રિપેર ચાલુ છે' },
+  'Repair Complete':    { english: 'Repair complete',           hindi: 'रिपेयर पूरी हुई',            gujarati: 'રિપેર પૂર્ણ' },
+  'Ready for Pickup':   { english: 'Ready for pickup',          hindi: 'पिकअप के लिए तैयार',         gujarati: 'પિકઅપ માટે તૈયાર' },
+  'Cannot Repair':      { english: 'Cannot be repaired',        hindi: 'रिपेयर संभव नहीं',           gujarati: 'રિપેર શક્ય નથી' },
+  'Picked Up':          { english: 'Collected',                 hindi: 'ले लिया गया',                gujarati: 'લઈ લેવાઈ' },
+};
+
+function statusLabel(status, lang) {
+  const s = canonicalStatus(status);
+  const entry = STATUS_LABELS[s];
+  if (entry) return entry[lang] || entry.english;
+  return s || '—';
+}
 
 function get(key, lang) {
   const langKey = lang || 'english';
@@ -475,4 +556,7 @@ function termsUrlSuffix(lang) {
   return `${labels[lang] || labels.english} ${url}`;
 }
 
-module.exports = { get, fill, randomGreeting, termsLinkUrl, termsLinkLine, termsUrlSuffix };
+module.exports = {
+  get, fill, randomGreeting, termsLinkUrl, termsLinkLine, termsUrlSuffix,
+  statusLabel,
+};

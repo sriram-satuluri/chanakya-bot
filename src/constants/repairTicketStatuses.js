@@ -45,9 +45,33 @@ function canonicalStatus(s) {
   return _CANONICAL_BY_KEY.get(normalizeStatusKey(s)) ?? String(s ?? '').trim();
 }
 
+/**
+ * Statuses that END the proactive-update lifecycle for a ticket.
+ *   'Ready for Pickup' → send ONE final "your bag is ready" message, then stop.
+ *   'Picked Up'        → already collected; stop silently (a "ready" message
+ *                        would be wrong/confusing at this point).
+ *   'Cannot Repair'    → job cancelled; stop.
+ * Maps to the stop_reason recorded on the ticket row.
+ */
+const TERMINAL_STOP_REASON = {
+  'Ready for Pickup': 'completed',
+  'Picked Up':        'completed',
+  'Cannot Repair':    'cancelled',
+};
+
+/** @returns {'completed'|'cancelled'|null} */
+function terminalStopReason(status) {
+  const s = canonicalStatus(status);
+  if (TERMINAL_STOP_REASON[s]) return TERMINAL_STOP_REASON[s];
+  // Staff sometimes type a free-form cancellation instead of using the dropdown.
+  if (/\bcancel/i.test(s)) return 'cancelled';
+  return null;
+}
+
 module.exports = {
   REPAIR_TICKET_STATUSES,
   DEFAULT_REPAIR_TICKET_STATUS,
   normalizeStatusKey,
   canonicalStatus,
+  terminalStopReason,
 };

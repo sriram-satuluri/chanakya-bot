@@ -2,9 +2,10 @@ const crypto = require('crypto');
 const { getSession, updateSession } = require('../utils/sessionStore');
 const { detectLanguage } = require('../utils/languageDetect');
 const { detectIntent } = require('../utils/intentDetect');
-const { logAnalytics } = require('../services/sheets');
+const { logAnalytics, setCustomerLanguage, hasOpenOptedInTicket } = require('../services/sheets');
 const { markAsRead } = require('../services/whatsapp');
 const { recordInboundMessage } = require('../utils/lastContactCache');
+const { resolveLanguage, setCachedLanguage } = require('../utils/languagePref');
 
 /* ── Log-safety helpers ──────────────────────────────────────────────
  * PII redaction + log-injection defence. Phones are truncated to last-4
@@ -39,6 +40,10 @@ const { handleStoreLocations } = require('../flows/storeLocations');
 const { handleCorporateFlow } = require('../flows/corporate');
 const { handleEscalation, handleFallback } = require('../flows/escalate');
 const { handleTermsRequest } = require('../flows/terms');
+const { sendLanguagePicker, handleLanguageChoice } = require('../flows/language');
+const {
+  handleRepairUpdatesAnswer, handleRepairUpdatesCommand,
+} = require('../flows/repairUpdates');
 
 // Deduplicate messages (Meta sometimes sends webhooks twice). Bounded ring-buffer style:
 // we keep a Map<id, timestamp> and periodically evict entries older than DEDUP_TTL_MS.
@@ -157,20 +162,38 @@ async function processMessage(message, contact) {
   // Get or create session
   let session = getSession(phone);
 
-  // Detect language on first message or if not set
+  // Resolve language: in-memory session → stored preference (Sheets) →
+  // auto-detect as a last resort. The stored preference is what makes the
+  // choice survive restarts, so a returning customer is never re-asked.
   if (!session.language) {
-    session.language = detectLanguage(text);
-    updateSession(phone, { language: session.language });
-    console.log(`[LANG] Detected: ${session.language} for ${redactPhone(phone)}`);
+    const stored = await resolveLanguage(phone).catch(() => null);
+    if (stored) {
+      session.language = stored;
+      updateSession(phone, { language: stored });
+      console.log(`[LANG] Restored stored preference ${stored} for ${redactPhone(phone)}`);
+    } else {
+      // Never picked a language → provisional detection just so the picker and
+      // any error text render sensibly; the picker itself decides the real one.
+      session.language = detectLanguage(text);
+      updateSession(phone, { language: session.language, needsLanguagePick: true });
+      session.needsLanguagePick = true;
+      console.log(`[LANG] First contact ${redactPhone(phone)} — provisional ${session.language}, will ask`);
+    }
   }
 
   // Language override keywords. When user explicitly switches language,
   // reset the greeting flag so the next main menu greets them fresh in the new language.
   const langOverride = checkLanguageOverride(text);
   if (langOverride && langOverride !== session.language) {
-    updateSession(phone, { language: langOverride, greeted: false });
+    updateSession(phone, { language: langOverride, greeted: false, needsLanguagePick: false });
     session.language = langOverride;
     session.greeted = false;
+    session.needsLanguagePick = false;
+    setCachedLanguage(phone, langOverride);
+    // Persist so the switch outlives this session (fire-and-forget: the
+    // customer is already being served in the new language either way).
+    setCustomerLanguage(phone, langOverride).catch((e) =>
+      console.error(`[LANG] Failed to persist override for ${redactPhone(phone)}:`, e.message));
     console.log(`[LANG] ${redactPhone(phone)} switched language: -> ${langOverride}`);
   }
 
@@ -208,6 +231,35 @@ const FLOW_TRIGGER_BUTTONS = new Set([
 ]);
 
 async function routeMessage({ phone, text, msgType, message, session, intent }) {
+  // ── Language selection ──────────────────────────────────────────────
+  // Answering the picker always wins, wherever the customer is.
+  if (intent === 'language_choice') {
+    const chosen = await handleLanguageChoice(phone, text);
+    if (chosen) {
+      session.language = chosen;
+      session.needsLanguagePick = false;
+      return showMainMenu(phone, chosen);
+    }
+  }
+
+  // Explicit request to change language, at any point in the conversation.
+  if (intent === 'change_language') {
+    return sendLanguagePicker(phone, session.language);
+  }
+
+  // First-ever contact: ask for a language before anything else, so the whole
+  // conversation (including the main menu) is in their language from message one.
+  if (session.needsLanguagePick) {
+    return sendLanguagePicker(phone, session.language);
+  }
+
+  // Standing repair-update commands ("stop updates" / "resume updates").
+  // Deliberately separate from marketing STOP/RESUME below, and honoured
+  // mid-flow without disturbing flow state.
+  if (intent === 'repair_updates_off' || intent === 'repair_updates_on') {
+    return handleRepairUpdatesCommand(phone, session.language, intent === 'repair_updates_on');
+  }
+
   // Explicit "go to main menu" always resets and shows the menu — escape hatch.
   // Also resets the fallback counter so a returning user doesn't get insta-escalated
   // after previously hitting 3 fallbacks.
@@ -232,7 +284,15 @@ async function routeMessage({ phone, text, msgType, message, session, intent }) 
         'Sorry, we could not update your message preferences right now. Please send this again in a few minutes.');
     }
     console.log(`[OPT] ${intent} recorded for ${redactPhone(phone)}`);
-    return sendTextMessage(phone, M.get(optIn ? 'opt_in_confirmed' : 'opt_out_confirmed', session.language));
+    let confirm = M.get(optIn ? 'opt_in_confirmed' : 'opt_out_confirmed', session.language);
+    // Bare STOP only stops MARKETING. If they still have an open, opted-in
+    // repair ticket, say so plainly rather than letting them assume everything
+    // has stopped — and tell them the phrase that does stop those too.
+    if (!optIn) {
+      const stillOn = await hasOpenOptedInTicket(phone).catch(() => false);
+      if (stillOn) confirm += M.get('opt_out_repair_still_on', session.language);
+    }
+    return sendTextMessage(phone, confirm);
   }
 
   // Escalation-paused sessions were a UX dead-end: user tapped "Talk to Team", session
@@ -269,6 +329,12 @@ async function routeMessage({ phone, text, msgType, message, session, intent }) 
       case 'corporate': return handleCorporateFlow(phone, text, session, intent);
       case 'store_location':
         return handleStoreLocations(phone, text, session, intent);
+      case 'repair_updates':
+        return handleRepairUpdatesAnswer(phone, text, session);
+      case 'language':
+        // Sitting on the picker but sent something else — re-show it rather
+        // than dropping them into an unrelated flow.
+        return sendLanguagePicker(phone, session.language);
     }
   }
 

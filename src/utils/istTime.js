@@ -84,4 +84,10 @@ function currentISTYear(date = new Date()) {
   return Number(formatISTDate(date).slice(0, 4));
 }
 
-module.exports = { formatIST, formatISTDate, parseISTString, currentISTYear, IST_OFFSET_MS };
+/** Hour-of-day (0-23) in IST. Used for proactive-send quiet hours, so the
+ *  window means the same thing on a UTC cloud host as on an IST laptop. */
+function istHour(date = new Date()) {
+  return new Date(date.getTime() + IST_OFFSET_MS).getUTCHours();
+}
+
+module.exports = { formatIST, formatISTDate, parseISTString, currentISTYear, istHour, IST_OFFSET_MS };

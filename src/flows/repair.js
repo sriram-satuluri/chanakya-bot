@@ -13,6 +13,7 @@ const {
 } = require('../constants/publicContact');
 const { showMainMenu } = require('./mainMenu');
 const { handleEscalation } = require('./escalate');
+const { askRepairUpdatesOptIn } = require('./repairUpdates');
 const M = require('../messages/index');
 
 /** Normalize WhatsApp row titles vs typed text (unicode slashes, spacing). */
@@ -252,13 +253,11 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
         );
       }
 
-      // Offer to go back to main menu
-      const backButtons = {
-        english:  [{ id: 'btn_main_menu', title: '🏠 Main Menu' },    { id: 'btn_track', title: '📍 Track Repair' }],
-        hindi:    [{ id: 'btn_main_menu', title: '🏠 मुख्य मेनू' },     { id: 'btn_track', title: '📍 ट्रैक करें' }],
-        gujarati: [{ id: 'btn_main_menu', title: '🏠 મુખ્ય મેનુ' }, { id: 'btn_track', title: '📍 ટ્રૅક કરો' }],
-      };
-      return sendButtonMessage(phone, M.get('interactive_choose_next', lang), backButtons[lang] || backButtons.english);
+      // Finally: ask whether they want proactive updates on this ticket.
+      // This parks the session on the 'repair_updates' flow to catch the
+      // answer, so it replaces the old "what next?" buttons rather than
+      // adding another message — the answer buttons double as the exit.
+      return askRepairUpdatesOptIn(phone, lang, ticketId);
     }
 
     default:

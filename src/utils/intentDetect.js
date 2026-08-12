@@ -102,6 +102,36 @@ function detectIntent(text, session) {
     return '__continue_flow__';
   }
 
+  // Language picker rows (sent as an interactive list on first contact and
+  // whenever the customer asks to switch).
+  if (/^lang_(english|hindi|gujarati)$/.test(lower)) return 'language_choice';
+
+  // "Change my language" — EXACT match, because the bare word "language" could
+  // otherwise appear inside an ordinary sentence.
+  const CHANGE_LANG_EXACT = new Set([
+    'language', 'change language', 'lang', 'bhasha', 'bhasa',
+    'भाषा', 'भाषा बदलें', 'भाषा बदलो',
+    'ભાષા', 'ભાષા બદલો',
+  ]);
+  if (CHANGE_LANG_EXACT.has(lower)) return 'change_language';
+
+  // Proactive REPAIR-UPDATE opt-out/in. Deliberately a DIFFERENT keyword set
+  // from the marketing STOP/RESUME below: bare "stop" stays bound to marketing
+  // (WhatsApp convention), while these two-word phrases control transactional
+  // repair updates. Checked first so the more specific phrase always wins.
+  const REPAIR_OFF_EXACT = new Set([
+    'stop updates', 'stop update', 'no updates', 'stop repair updates',
+    'अपडेट बंद', 'अपडेट बंद करो', 'update band', 'update band karo',
+    'અપડેટ બંધ', 'અપડેટ બંધ કરો',
+  ]);
+  const REPAIR_ON_EXACT = new Set([
+    'resume updates', 'resume update', 'start updates', 'start repair updates',
+    'अपडेट चालू', 'अपडेट चालू करो', 'update chalu', 'update chalu karo',
+    'અપડેટ ચાલુ', 'અપડેટ ચાલુ કરો',
+  ]);
+  if (REPAIR_OFF_EXACT.has(lower)) return 'repair_updates_off';
+  if (REPAIR_ON_EXACT.has(lower)) return 'repair_updates_on';
+
   // Broadcast opt-out / opt-in — EXACT match only, so "my zip stopped working"
   // never unsubscribes someone mid-sentence. WhatsApp policy requires honouring STOP.
   const OPT_OUT_EXACT = new Set(['stop', 'unsubscribe', 'opt out', 'optout', 'stop messages', 'band karo', 'message band karo', 'बंद करो', 'બંધ કરો']);

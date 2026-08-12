@@ -3,6 +3,7 @@ const {
   REPAIR_TICKET_STATUSES,
   DEFAULT_REPAIR_TICKET_STATUS,
   canonicalStatus,
+  terminalStopReason,
 } = require('../constants/repairTicketStatuses');
 const { formatIST, formatISTDate, parseISTString } = require('../utils/istTime');
 
@@ -120,10 +121,28 @@ function safeUserText(value, maxLen = 4000) {
 // REPAIR TICKETS
 // ══════════════════════════════════════════════════════════════
 
-// Row layout repair_tickets!A:O — keep in sync with the sheet tab header row:
+// Row layout repair_tickets!A:U — keep in sync with the sheet tab header row:
 // A ticket_id · B customer_name · C phone · D bag_type · E problem · F store · G status ·
 // H before_photo · I after_photo · J created_at · K updated_at · L estimated_pickup ·
-// M language · N notes · O last_reassurance_at · (counter in P1 outside table)
+// M language · N notes · O last_reassurance_at · P (reserved — ticket counter lives in P1) ·
+// Q opted_in · R last_status_sent · S last_update_sent_at · T stop_reason ·
+// U consecutive_failure_count
+//
+// Q-U drive the proactive repair-status updates (see jobs/statusPoller.js).
+// NB: P is deliberately left blank on data rows — P1 holds the ticket counter
+// outside the table, so writing '' at that index never touches it.
+const TICKET_COL = {
+  TICKET_ID: 0, CUSTOMER_NAME: 1, PHONE: 2, BAG_TYPE: 3, PROBLEM: 4, STORE: 5,
+  STATUS: 6, BEFORE_PHOTO: 7, AFTER_PHOTO: 8, CREATED_AT: 9, UPDATED_AT: 10,
+  ESTIMATED_PICKUP: 11, LANGUAGE: 12, NOTES: 13, LAST_REASSURANCE_AT: 14,
+  RESERVED_P: 15,
+  OPTED_IN: 16, LAST_STATUS_SENT: 17, LAST_UPDATE_SENT_AT: 18,
+  STOP_REASON: 19, CONSECUTIVE_FAILURE_COUNT: 20,
+};
+/** A1 column letter for a 0-based TICKET_COL index (A-Z is enough here). */
+function ticketColLetter(idx) {
+  return String.fromCharCode(65 + idx);
+}
 async function createRepairTicket(data) {
   const photoCell = beforePhotoSheetCell(data.beforePhotoUrl || '');
   // ticketId, phone, store, language are bot-generated / constrained by our own resolvers,
@@ -142,8 +161,14 @@ async function createRepairTicket(data) {
     formatIST(),
     '',
     safeUserText(data.language || 'english', 30),
-    '',
-    '',
+    '',                                                         // N notes
+    '',                                                         // O last_reassurance_at
+    '',                                                         // P reserved (counter is in P1)
+    data.updatesOptedIn ? 'TRUE' : 'FALSE',                     // Q opted_in
+    '',                                                         // R last_status_sent
+    '',                                                         // S last_update_sent_at
+    '',                                                         // T stop_reason
+    '0',                                                        // U consecutive_failure_count
   ];
   await appendRow(TABS.TICKETS, row);
 }
@@ -313,6 +338,136 @@ async function setTicketReassuranceTime(rowIndex, at = new Date()) {
 }
 
 // ══════════════════════════════════════════════════════════════
+// PROACTIVE REPAIR-UPDATE STATE (repair_tickets Q-U)
+// ══════════════════════════════════════════════════════════════
+
+/** Sheet cells hold 'TRUE'/'FALSE' text; treat anything else as false. */
+function isSheetTrue(v) {
+  return String(v ?? '').trim().toUpperCase() === 'TRUE';
+}
+
+/**
+ * Every ticket that is a candidate for a proactive status update: opted in,
+ * not already stopped, and with a usable phone. Terminal-status filtering and
+ * send-vs-skip decisions live in jobs/statusPoller.js — this just surfaces
+ * the rows and their update state.
+ */
+async function getTicketsForProactiveUpdate() {
+  const rows = await readTicketRows();
+  const out = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    const ticketId = String(r[TICKET_COL.TICKET_ID] ?? '').trim();
+    if (!ticketId || !/^CHA-/i.test(ticketId)) continue;
+    if (!isSheetTrue(r[TICKET_COL.OPTED_IN])) continue;
+    // A recorded stop_reason means the lifecycle already ended for this ticket.
+    if (String(r[TICKET_COL.STOP_REASON] ?? '').trim()) continue;
+
+    out.push({
+      ticketId,
+      customerName:      String(r[TICKET_COL.CUSTOMER_NAME] ?? '').trim(),
+      phone:             String(r[TICKET_COL.PHONE] ?? '').trim(),
+      store:             String(r[TICKET_COL.STORE] ?? '').trim(),
+      status:            canonicalStatus(r[TICKET_COL.STATUS]),
+      language:          String(r[TICKET_COL.LANGUAGE] ?? '').trim().toLowerCase() || 'english',
+      lastStatusSent:    String(r[TICKET_COL.LAST_STATUS_SENT] ?? '').trim(),
+      lastUpdateSentAt:  parseISTString(r[TICKET_COL.LAST_UPDATE_SENT_AT]),
+      failureCount:      Number(r[TICKET_COL.CONSECUTIVE_FAILURE_COUNT]) || 0,
+      rowIndex:          i + 1, // 1-indexed for the Sheets API
+    });
+  }
+  return out;
+}
+
+/**
+ * Persist the outcome of a proactive send in one batched write (one API call
+ * per ticket rather than five). Only the fields provided are written.
+ * @param {number} rowIndex 1-indexed sheet row
+ * @param {{statusSent?:string, sentAt?:Date, stopReason?:string, failureCount?:number, optedIn?:boolean}} patch
+ */
+async function recordProactiveUpdate(rowIndex, patch = {}) {
+  const data = [];
+  const put = (colIdx, value) => data.push({
+    range: `${TABS.TICKETS}!${ticketColLetter(colIdx)}${rowIndex}`,
+    values: [[value]],
+  });
+
+  if (patch.optedIn !== undefined) put(TICKET_COL.OPTED_IN, patch.optedIn ? 'TRUE' : 'FALSE');
+  if (patch.statusSent !== undefined) put(TICKET_COL.LAST_STATUS_SENT, safeUserText(patch.statusSent, 200));
+  if (patch.sentAt !== undefined) put(TICKET_COL.LAST_UPDATE_SENT_AT, formatIST(patch.sentAt));
+  if (patch.stopReason !== undefined) put(TICKET_COL.STOP_REASON, safeUserText(patch.stopReason, 60));
+  if (patch.failureCount !== undefined) put(TICKET_COL.CONSECUTIVE_FAILURE_COUNT, String(patch.failureCount));
+  if (!data.length) return;
+
+  await sheets().spreadsheets.values.batchUpdate({
+    spreadsheetId: SHEET_ID(),
+    requestBody: { valueInputOption: 'USER_ENTERED', data },
+  });
+}
+
+/**
+ * Open (non-terminal, non-stopped) tickets belonging to a phone number.
+ * Backs the standing "stop updates" / "resume updates" commands and the
+ * "you still have updates on your open ticket" note on bare STOP.
+ */
+async function getOpenTicketsForPhone(phone) {
+  const want = String(phone ?? '').replace(/[^0-9]/g, '');
+  if (!want) return [];
+  const rows = await readTicketRows();
+  const out = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    const ticketId = String(r[TICKET_COL.TICKET_ID] ?? '').trim();
+    if (!ticketId || !/^CHA-/i.test(ticketId)) continue;
+    if (String(r[TICKET_COL.PHONE] ?? '').replace(/[^0-9]/g, '') !== want) continue;
+    const status = canonicalStatus(r[TICKET_COL.STATUS]);
+    if (terminalStopReason(status)) continue; // already finished/cancelled
+    out.push({
+      ticketId,
+      status,
+      rowIndex: i + 1,
+      optedIn: isSheetTrue(r[TICKET_COL.OPTED_IN]),
+      stopReason: String(r[TICKET_COL.STOP_REASON] ?? '').trim(),
+    });
+  }
+  return out;
+}
+
+/**
+ * Toggle proactive updates for a phone's open tickets. Opting back in clears
+ * the stop_reason and failure counter so a previously-stopped ticket resumes
+ * cleanly.
+ *
+ * @param {string} phone
+ * @param {boolean} optedIn
+ * @param {{stopReason?: string, ticketId?: string}} [opts]
+ *   ticketId — limit the change to that one ticket (used by the answer to the
+ *   post-booking question). Omit to apply to every open ticket, which is what
+ *   the standing "stop updates" / "resume updates" commands want.
+ * @returns {Promise<number>} how many tickets were changed
+ */
+async function setRepairUpdatesOptIn(phone, optedIn, opts = {}) {
+  const { stopReason = '', ticketId = null } = opts;
+  const wantId = ticketId ? String(ticketId).trim().toUpperCase() : null;
+  const open = await getOpenTicketsForPhone(phone);
+  let changed = 0;
+  for (const t of open) {
+    if (wantId && t.ticketId.toUpperCase() !== wantId) continue;
+    await recordProactiveUpdate(t.rowIndex, optedIn
+      ? { optedIn: true, stopReason: '', failureCount: 0 }
+      : { optedIn: false, stopReason: stopReason || 'opted_out' });
+    changed++;
+  }
+  return changed;
+}
+
+/** True if this phone has at least one open ticket still receiving updates. */
+async function hasOpenOptedInTicket(phone) {
+  const open = await getOpenTicketsForPhone(phone);
+  return open.some(t => t.optedIn && !t.stopReason);
+}
+
+// ══════════════════════════════════════════════════════════════
 // TICKET ID COUNTER (stored in repair_tickets!P1)
 // ══════════════════════════════════════════════════════════════
 
@@ -429,6 +584,55 @@ async function addOrUpdateContact(phone, language) {
   await appendRow(TABS.CONTACTS, [
     safeUserText(phone, 20),
     safeUserText(language || 'english', 30),
+    formatISTDate(),
+    'TRUE',
+  ]);
+}
+
+/**
+ * The customer's saved language preference (opt_in_contacts column B), or null
+ * if we've never stored one. This is the durable counterpart to the in-memory
+ * session language — it survives restarts, so a returning customer is never
+ * re-asked and never silently falls back to auto-detection.
+ * @returns {Promise<'english'|'hindi'|'gujarati'|null>}
+ */
+async function getCustomerLanguage(phone) {
+  const digits = String(phone || '').replace(/[^0-9]/g, '');
+  if (!digits) return null;
+  const rows = await readAllRows(TABS.CONTACTS);
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0] || '').replace(/[^0-9]/g, '') === digits) {
+      const lang = String(rows[i][1] || '').trim().toLowerCase();
+      return ['english', 'hindi', 'gujarati'].includes(lang) ? lang : null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Persist the customer's chosen language (opt_in_contacts column B), creating
+ * the contact row if this is their first contact. Deliberately does NOT touch
+ * column D (marketing opted_in) — language and marketing consent are separate.
+ */
+async function setCustomerLanguage(phone, language) {
+  const digits = String(phone || '').replace(/[^0-9]/g, '');
+  const lang = String(language || '').trim().toLowerCase();
+  if (!digits || !['english', 'hindi', 'gujarati'].includes(lang)) return;
+  const rows = await readAllRows(TABS.CONTACTS);
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0] || '').replace(/[^0-9]/g, '') === digits) {
+      await sheets().spreadsheets.values.update({
+        spreadsheetId: SHEET_ID(),
+        range: `${TABS.CONTACTS}!B${i + 1}`,
+        valueInputOption: 'RAW',
+        requestBody: { values: [[lang]] },
+      });
+      return;
+    }
+  }
+  await appendRow(TABS.CONTACTS, [
+    safeUserText(phone, 20),
+    lang,
     formatISTDate(),
     'TRUE',
   ]);
@@ -623,6 +827,10 @@ module.exports = {
   createLead,
   logAnalytics,
   addOrUpdateContact, getOptInContacts, setContactOptIn,
+  getCustomerLanguage, setCustomerLanguage,
+  getTicketsForProactiveUpdate, recordProactiveUpdate,
+  getOpenTicketsForPhone, setRepairUpdatesOptIn, hasOpenOptedInTicket,
+  TICKET_COL,
   getPendingBroadcasts, markBroadcastSent, setBroadcastStatus,
   applyRepairTicketStatusDropdown,
   readTicketRows,
