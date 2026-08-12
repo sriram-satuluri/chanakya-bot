@@ -155,6 +155,27 @@ async function sendDocumentMessage(to, docUrl, filename = 'document.pdf', captio
   });
 }
 
+/**
+ * Sanitise a value destined for a template variable ({{1}}, {{2}}, …).
+ *
+ * Meta REJECTS a template send whose parameters contain newlines, tabs, or
+ * 4+ consecutive spaces (error 132000 "parameter format does not match").
+ * That matters here because these values are customer free-text that reached
+ * us through the sheet — a customer whose name is "Ravi\nPatel", or a
+ * staff-typed multi-line status cell, would otherwise fail EVERY send for
+ * that ticket, tripping the consecutive-failure counter and silently
+ * unsubscribing them from updates they asked for.
+ *
+ * Collapses all whitespace runs to a single space and trims.
+ */
+function sanitizeTemplateParam(value, maxLen = 200, fallback = '') {
+  const s = String(value ?? '')
+    .replace(/\s+/g, ' ')   // newlines, tabs, and multi-space runs → one space
+    .trim();
+  if (!s) return fallback;
+  return s.length > maxLen ? s.slice(0, maxLen).trim() : s;
+}
+
 // ── Template message (for broadcasts / proactive alerts) ──────
 async function sendTemplateMessage(to, templateName, langCode, components = []) {
   return call({
@@ -303,4 +324,5 @@ module.exports = {
   phoneId,
   isLikelySendablePhone,
   isOutsideWindowError,
+  sanitizeTemplateParam,
 };

@@ -1,5 +1,7 @@
 const { getPendingBroadcasts, setBroadcastStatus, getOptInContacts } = require('../services/sheets');
-const { sendTemplateMessage, isLikelySendablePhone } = require('../services/whatsapp');
+const {
+  sendTemplateMessage, isLikelySendablePhone, sanitizeTemplateParam,
+} = require('../services/whatsapp');
 
 const LANG_CODE = { english: 'en', hindi: 'hi', gujarati: 'gu' };
 
@@ -63,7 +65,12 @@ async function runBroadcast(broadcast) {
 
   // Build template components from variables
   const components = [];
-  const bodyParams = Object.values(variables).map(v => ({ type: 'text', text: String(v) }));
+  // Sanitized for the same reason as the status-update templates: Meta rejects
+  // parameters containing newlines/tabs/4+ spaces, and these come from a
+  // hand-edited JSON cell in the broadcast_queue sheet.
+  const bodyParams = Object.values(variables).map(v => ({
+    type: 'text', text: sanitizeTemplateParam(v, 300, '—'),
+  }));
   if (bodyParams.length > 0) {
     components.push({ type: 'body', parameters: bodyParams });
   }

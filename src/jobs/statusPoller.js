@@ -2,7 +2,9 @@ const {
   getTicketsForProactiveUpdate,
   recordProactiveUpdate,
 } = require('../services/sheets');
-const { sendTemplateMessage, isLikelySendablePhone } = require('../services/whatsapp');
+const {
+  sendTemplateMessage, isLikelySendablePhone, sanitizeTemplateParam,
+} = require('../services/whatsapp');
 const M = require('../messages/index');
 const {
   canonicalStatus, terminalStopReason, DEFAULT_REPAIR_TICKET_STATUS,
@@ -176,26 +178,40 @@ async function pollStatusChanges() {
     const templateName = TEMPLATE_BY_LANG[lang]();
     const statusText = M.statusLabel(t.status, lang);
 
+    // Only the SEND lives in this try. A Sheets write failure must never be
+    // mistaken for a delivery failure — doing so would increment the
+    // consecutive-failure counter (and after 3, silently unsubscribe someone)
+    // for messages the customer actually received.
+    let sendResult = null;
+    let sendError = null;
     try {
-      const res = await sendTemplateMessage(t.phone, templateName, LANG_CODE[lang], [{
+      sendResult = await sendTemplateMessage(t.phone, templateName, LANG_CODE[lang], [{
         type: 'body',
+        // Every value is sanitized: these originate from customer free-text /
+        // staff-typed sheet cells, and Meta rejects params containing newlines,
+        // tabs, or 4+ consecutive spaces.
         parameters: [
-          { type: 'text', text: String(t.customerName || 'there').slice(0, 60) },
-          { type: 'text', text: String(t.ticketId) },
-          { type: 'text', text: String(statusText).slice(0, 200) },
-          { type: 'text', text: String(t.store || '—').slice(0, 100) },
+          { type: 'text', text: sanitizeTemplateParam(t.customerName, 60, 'there') },
+          { type: 'text', text: sanitizeTemplateParam(t.ticketId, 40, '—') },
+          { type: 'text', text: sanitizeTemplateParam(statusText, 200, '—') },
+          { type: 'text', text: sanitizeTemplateParam(t.store, 100, '—') },
         ],
       }]);
+    } catch (err) {
+      sendError = err;
+    }
 
-      const wamid = res?.messages?.[0]?.id || '?';
+    // ── Build the state patch from the send outcome ──────────────────
+    let patch;
+    if (!sendError) {
+      const wamid = sendResult?.messages?.[0]?.id || '?';
       // Audit line — one per billable send, greppable as [PROACTIVE].
       console.log(
         `[PROACTIVE] ticket=${t.ticketId} phone=${logPhone(t.phone)} lang=${lang} `
         + `template=${templateName} reason=${decision.reason} status=accepted wamid=${wamid} at=${formatIST(now)}`,
       );
       sent++;
-
-      const patch = { statusSent: t.status, sentAt: now, failureCount: 0 };
+      patch = { statusSent: t.status, sentAt: now, failureCount: 0 };
       if (decision.terminal) {
         // Ready for pickup / cannot repair: this was the final message.
         patch.optedIn = false;
@@ -203,18 +219,16 @@ async function pollStatusChanges() {
         stopped++;
         console.log(`[PROACTIVE] ticket=${t.ticketId} final message sent — stopping (reason=${decision.terminal})`);
       }
-      await recordProactiveUpdate(t.rowIndex, patch);
-    } catch (err) {
+    } else {
       failed++;
       const nextFailures = (t.failureCount || 0) + 1;
-      const metaErr = err.response?.data?.error || {};
+      const metaErr = sendError.response?.data?.error || {};
       console.error(
         `[PROACTIVE] ticket=${t.ticketId} phone=${logPhone(t.phone)} lang=${lang} `
         + `template=${templateName} reason=${decision.reason} status=failed `
-        + `attempt=${nextFailures}/${MAX_CONSECUTIVE_FAILURES} code=${metaErr.code ?? '?'} msg=${err.message}`,
+        + `attempt=${nextFailures}/${MAX_CONSECUTIVE_FAILURES} code=${metaErr.code ?? '?'} msg=${sendError.message}`,
       );
-
-      const patch = { failureCount: nextFailures };
+      patch = { failureCount: nextFailures };
       if (nextFailures >= MAX_CONSECUTIVE_FAILURES) {
         patch.optedIn = false;
         patch.stopReason = 'delivery_failed';
@@ -224,9 +238,18 @@ async function pollStatusChanges() {
           + `updates stopped for this ticket (stop_reason=delivery_failed). Investigate the number.`,
         );
       }
-      await recordProactiveUpdate(t.rowIndex, patch)
-        .catch((e) => console.error(`[PROACTIVE] ${t.ticketId} failure-write failed:`, e.message));
     }
+
+    // Persisting state is a separate concern: if THIS fails the message was
+    // still delivered (or genuinely failed) — log it and move on rather than
+    // corrupting the failure counter.
+    await recordProactiveUpdate(t.rowIndex, patch).catch((e) => {
+      console.error(
+        `[PROACTIVE] ${t.ticketId} state-write FAILED (send outcome was `
+        + `${sendError ? 'failed' : 'delivered'}): ${e.message}. `
+        + `If the send succeeded, the next run may repeat it.`,
+      );
+    });
 
     // Gentle pacing so a backlog can't burst against the outbound rate limit.
     await sleep(700);
