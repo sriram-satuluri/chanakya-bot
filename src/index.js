@@ -50,6 +50,13 @@ function logConfigWarnings() {
   }
 }
 logConfigWarnings();
+
+// Verify the directories holding state that must survive a redeploy are
+// writable and look like a mounted volume rather than an ephemeral container
+// filesystem. Warns loudly; never blocks startup.
+const { checkPersistence } = require('./utils/persistenceCheck');
+checkPersistence();
+
 const cron = require('node-cron');
 const { verifyMetaWhatsAppCredentials } = require('./services/whatsapp');
 const { verifyWebhook } = require('./webhook/verify');
