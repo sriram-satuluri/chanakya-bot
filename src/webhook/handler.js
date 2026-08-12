@@ -4,7 +4,7 @@ const { detectLanguage } = require('../utils/languageDetect');
 const { detectIntent } = require('../utils/intentDetect');
 const { logAnalytics, setCustomerLanguage, hasOpenOptedInTicket } = require('../services/sheets');
 const { markAsRead } = require('../services/whatsapp');
-const { recordInboundMessage } = require('../utils/lastContactCache');
+const { claimMessage } = require('../utils/dedupStore');
 const { resolveLanguage, setCachedLanguage } = require('../utils/languagePref');
 
 /* ── Log-safety helpers ──────────────────────────────────────────────
@@ -45,17 +45,9 @@ const {
   handleRepairUpdatesAnswer, handleRepairUpdatesCommand,
 } = require('../flows/repairUpdates');
 
-// Deduplicate messages (Meta sometimes sends webhooks twice). Bounded ring-buffer style:
-// we keep a Map<id, timestamp> and periodically evict entries older than DEDUP_TTL_MS.
-const DEDUP_TTL_MS = 10 * 60 * 1000; // 10 minutes
-const DEDUP_MAX = 5000;
-const processedMessageIds = new Map();
-setInterval(() => {
-  const cutoff = Date.now() - DEDUP_TTL_MS;
-  for (const [id, ts] of processedMessageIds) {
-    if (ts < cutoff) processedMessageIds.delete(id);
-  }
-}, 60 * 1000).unref();
+// Message de-duplication lives in utils/dedupStore.js — it is disk-backed so
+// that a restart during Meta's retry window cannot re-process a message and
+// create a duplicate repair ticket.
 
 async function handleWebhook(req, res) {
   // Always respond 200 immediately — Meta will retry if you don't
@@ -95,13 +87,12 @@ async function handleWebhook(req, res) {
         if (!value.messages) continue;
 
         for (const message of value.messages) {
-          // Skip duplicates (Meta occasionally retries within a few seconds)
-          if (processedMessageIds.has(message.id)) continue;
-          processedMessageIds.set(message.id, Date.now());
-          // Overflow guard — if the cleanup timer hasn't run yet
-          if (processedMessageIds.size > DEDUP_MAX) {
-            const first = processedMessageIds.keys().next().value;
-            processedMessageIds.delete(first);
+          // Skip duplicates. Backed by disk (utils/dedupStore.js) so a restart
+          // inside Meta's retry window can't re-process a message and create a
+          // second repair ticket for the same request.
+          if (!claimMessage(message.id)) {
+            console.log(`[DEDUP] Skipping already-processed message ${message.id}`);
+            continue;
           }
 
           await processMessage(message, value.contacts?.[0]);
@@ -120,11 +111,6 @@ async function processMessage(message, contact) {
     return;
   }
   const msgType = message.type;
-
-  // Every inbound message (re)opens the customer's free 24h service window.
-  // Persist the timestamp so the status poller can push for free while the
-  // window is open and skip/paid-template when it's closed.
-  recordInboundMessage(phone);
 
   // Send a read receipt (blue ticks) so the customer sees the business is
   // responsive. Free, not billed, not counted by the circuit breaker.

@@ -14,7 +14,31 @@ const {
 const { showMainMenu } = require('./mainMenu');
 const { handleEscalation } = require('./escalate');
 const { askRepairUpdatesOptIn } = require('./repairUpdates');
+const { envInt } = require('../utils/env');
 const M = require('../messages/index');
+
+/** Redact a phone to last-4 for logs. Module scope so it's also in scope in
+ *  the owner-alert error path, not just inside the ticket-create try block. */
+const _rp = (p) => (p && p.length > 4) ? '***' + p.slice(-4) : '***';
+
+/**
+ * Per-phone repair-ticket throttle. Mirrors the corporate-lead throttle in
+ * flows/corporate.js — without it, a scripted sender could loop the repair
+ * flow and generate unlimited tickets, each one costing a Sheets write plus
+ * 2-3 billable owner-alert WhatsApp messages. The outbound circuit breaker in
+ * utils/sendGuard.js is only a last-resort backstop; this stops the abuse at
+ * the source and keeps the sheet clean.
+ *
+ * Deliberately generous: a genuine customer with several bags to book will
+ * space them out by more than this, and anyone legitimately hitting the limit
+ * is told to call the store rather than being silently dropped.
+ */
+const TICKET_MIN_INTERVAL_MS = envInt('TICKET_MIN_INTERVAL_MINUTES', 10, { min: 0 }) * 60 * 1000;
+const _lastTicketAt = new Map(); // phone -> timestamp
+setInterval(() => {
+  const cutoff = Date.now() - TICKET_MIN_INTERVAL_MS * 2;
+  for (const [p, ts] of _lastTicketAt) if (ts < cutoff) _lastTicketAt.delete(p);
+}, 15 * 60 * 1000).unref();
 
 /** Normalize WhatsApp row titles vs typed text (unicode slashes, spacing). */
 function normalizeInteractiveLabel(s = '') {
@@ -181,6 +205,21 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
       const store = resolveStore(text);
       if (!store) return sendStoreMenu(phone, lang);
 
+      // Anti-spam throttle: one ticket per phone per TICKET_MIN_INTERVAL_MS.
+      // Checked here (the last step) rather than at flow start, so a customer
+      // isn't blocked from browsing the flow — only from committing a ticket.
+      const lastTicketAt = _lastTicketAt.get(phone) || 0;
+      if (TICKET_MIN_INTERVAL_MS > 0 && Date.now() - lastTicketAt < TICKET_MIN_INTERVAL_MS) {
+        const throttleMsg = {
+          english:  `You've just booked a repair with us. If you have another bag to book, please give it a few minutes — or call us and we'll add it for you:\n${defaultCallLine()}`,
+          hindi:    `आपने अभी-अभी एक रिपेयर बुक की है। दूसरा बैग बुक करना हो तो कुछ मिनट रुकें — या हमें कॉल करें, हम जोड़ देंगे:\n${defaultCallLine()}`,
+          gujarati: `તમે હમણાં જ એક રિપેર બુક કરી છે. બીજી બેગ બુક કરવી હોય તો થોડી મિનિટ રાહ જુઓ — અથવા અમને કૉલ કરો, અમે ઉમેરી દઈશું:\n${defaultCallLine()}`,
+        };
+        console.warn(`[TICKET] Throttled repeat ticket from ${_rp(phone)}`);
+        clearSession(phone);
+        return sendTextMessage(phone, throttleMsg[lang] || throttleMsg.english);
+      }
+
       // All data collected — create ticket!
       const storeName = STORE_NAMES[store];
       let ticketId;
@@ -196,8 +235,10 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
           beforePhotoUrl: data.beforePhotoUrl || '',
           language:       lang,
         });
+        // Only count a ticket toward the throttle once it actually persisted —
+        // a failed creation shouldn't lock the customer out of retrying.
+        _lastTicketAt.set(phone, Date.now());
         // Log-safe: don't persist full customer name + phone to log tails.
-        const _rp = (p) => (p && p.length > 4) ? '***' + p.slice(-4) : '***';
         console.log(`[TICKET] Created ${ticketId} for ${_rp(phone)}`);
 
         const ownerMsg =
@@ -215,7 +256,7 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
         const recipients = getRecipientsForRepair(branchSlugForAlerts);
         for (const ownerPhone of recipients) {
           sendTextMessage(ownerPhone, ownerMsg).catch((e) => {
-            console.error(`[OWNER-ALERT] Failed to notify ${ownerPhone} about ticket ${ticketId}:`, e.message);
+            console.error(`[OWNER-ALERT] Failed to notify ${_rp(ownerPhone)} about ticket ${ticketId}:`, e.message);
           });
         }
       } catch (err) {

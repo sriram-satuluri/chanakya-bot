@@ -3,8 +3,10 @@ const {
   recordProactiveUpdate,
 } = require('../services/sheets');
 const {
-  sendTemplateMessage, isLikelySendablePhone, sanitizeTemplateParam,
+  sendTemplateMessage, sendTextMessage, isLikelySendablePhone, sanitizeTemplateParam,
 } = require('../services/whatsapp');
+const { getRecipientsForCorporate } = require('../utils/ownerPhones');
+const { envInt, envBool } = require('../utils/env');
 const M = require('../messages/index');
 const {
   canonicalStatus, terminalStopReason, DEFAULT_REPAIR_TICKET_STATUS,
@@ -30,12 +32,13 @@ const { istHour, formatIST } = require('../utils/istTime');
  * Names are configurable via REPAIR_UPDATE_TEMPLATE_EN/HI/GU.
  */
 
-/** Only message customers between these IST hours (inclusive start, exclusive end). */
-const QUIET_START_HOUR = Number(process.env.PROACTIVE_START_HOUR) || 10;
-const QUIET_END_HOUR = Number(process.env.PROACTIVE_END_HOUR) || 19;
+/** Only message customers between these IST hours (inclusive start, exclusive end).
+ *  0 is a legitimate value (midnight), so these go through envInt, not `|| default`. */
+const QUIET_START_HOUR = envInt('PROACTIVE_START_HOUR', 10, { min: 0, max: 23 });
+const QUIET_END_HOUR = envInt('PROACTIVE_END_HOUR', 19, { min: 0, max: 24 });
 
 /** No status change for this many days → send a "still in progress" nudge. */
-const NUDGE_AFTER_DAYS = Number(process.env.REPAIR_UPDATE_NUDGE_DAYS) || 3;
+const NUDGE_AFTER_DAYS = envInt('REPAIR_UPDATE_NUDGE_DAYS', 3, { min: 0 });
 
 /** Consecutive send failures for a number before we stop trying for that ticket. */
 const MAX_CONSECUTIVE_FAILURES = 3;
@@ -63,8 +66,7 @@ const LANG_CODE = { english: 'en', hindi: 'hi', gujarati: 'gu' };
  *  and is the key Meta's own reports are keyed on. */
 function logPhone(p) {
   const s = String(p ?? '');
-  const full = String(process.env.PROACTIVE_LOG_FULL_PHONE || '').toLowerCase();
-  if (full === '1' || full === 'true') return s;
+  if (envBool('PROACTIVE_LOG_FULL_PHONE', false)) return s;
   return s.length > 4 ? '***' + s.slice(-4) : '***';
 }
 
@@ -142,6 +144,8 @@ async function pollStatusChanges() {
   }
 
   let sent = 0, failed = 0, skipped = 0, stopped = 0;
+  /** Tickets auto-unsubscribed this run — owners get one summary alert below. */
+  const autoUnsubscribed = [];
 
   for (const t of tickets) {
     const decision = decideAction(t, now.getTime());
@@ -233,9 +237,19 @@ async function pollStatusChanges() {
         patch.optedIn = false;
         patch.stopReason = 'delivery_failed';
         stopped++;
+        autoUnsubscribed.push({
+          ticketId: t.ticketId,
+          phone: t.phone,
+          lastError: `${metaErr.code ?? '?'}: ${sendError.message}`,
+        });
+        // Distinct, greppable tag for the OUTCOME (not the cause). Two
+        // different bugs have already produced this same silent unsubscribe
+        // via different routes, so the outcome itself is what gets alarmed —
+        // any future cause we haven't predicted still surfaces here.
         console.error(
-          `[PROACTIVE] ticket=${t.ticketId} hit ${MAX_CONSECUTIVE_FAILURES} consecutive failures — `
-          + `updates stopped for this ticket (stop_reason=delivery_failed). Investigate the number.`,
+          `[AUTO-UNSUBSCRIBE] ticket=${t.ticketId} phone=${logPhone(t.phone)} `
+          + `reason=delivery_failed failures=${nextFailures} lastError="${metaErr.code ?? '?'}: ${sendError.message}" `
+          + `— customer opted IN but will no longer receive updates. Investigate.`,
         );
       }
     }
@@ -256,6 +270,40 @@ async function pollStatusChanges() {
   }
 
   console.log(`[PROACTIVE] Run complete — sent:${sent} failed:${failed} skipped:${skipped} stopped:${stopped}`);
+
+  if (autoUnsubscribed.length) await alertOwnersOfAutoUnsubscribe(autoUnsubscribed);
+}
+
+/**
+ * Tell the owners when a customer who ASKED for updates has been cut off by
+ * repeated delivery failures. This alarms the outcome rather than any single
+ * cause: two separate bugs have already produced this exact silent unsubscribe
+ * by different routes, so whatever causes it next still surfaces here.
+ *
+ * One batched message per run (never one per ticket), and failures to alert
+ * are logged but never allowed to break the poll.
+ */
+async function alertOwnersOfAutoUnsubscribe(items) {
+  const lines = items.map(
+    (i) => `• ${i.ticketId} (${logPhone(i.phone)}) — ${i.lastError}`,
+  ).join('\n');
+  const msg =
+    `⚠️ *Repair updates auto-stopped*\n\n`
+    + `${items.length} customer(s) opted IN for repair updates but delivery failed `
+    + `${MAX_CONSECUTIVE_FAILURES}x in a row, so updates were switched off for them:\n\n`
+    + `${lines}\n\n`
+    + `They will hear nothing further until this is looked at. Check the number is `
+    + `valid and on WhatsApp, and that the status templates are still approved.`;
+
+  const recipients = getRecipientsForCorporate(); // general owners
+  if (!recipients.length) {
+    console.warn('[AUTO-UNSUBSCRIBE] No owner numbers configured — alert not sent.');
+    return;
+  }
+  for (const ownerPhone of recipients) {
+    await sendTextMessage(ownerPhone, msg).catch((e) =>
+      console.error(`[AUTO-UNSUBSCRIBE] Failed to alert owner ${logPhone(ownerPhone)}:`, e.message));
+  }
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

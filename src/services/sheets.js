@@ -6,9 +6,10 @@ const {
   terminalStopReason,
 } = require('../constants/repairTicketStatuses');
 const { formatIST, formatISTDate, parseISTString } = require('../utils/istTime');
+const { envInt } = require('../utils/env');
 
 /** Max rows fetched for repair sheet (grow if needed). */
-const TICKETS_ROW_CAP = Number(process.env.SHEETS_TICKETS_MAX_ROWS) || 2500;
+const TICKETS_ROW_CAP = envInt('SHEETS_TICKETS_MAX_ROWS', 2500, { min: 1 });
 
 // ── Auth (reuse client; JWT is lightweight but avoids extra setup per call)
 let jwtClient = null;
@@ -291,9 +292,9 @@ const parseSheetDate = parseISTString;
 
 // Open tickets with no row update for staleHours+, and no reassurance ping in minHoursBetweenPings+
 async function getTicketsNeedingReassurance(options = {}) {
-  const staleMs = (options.staleHours ?? (Number(process.env.REASSURANCE_STALE_HOURS) || 24)) * 3600000;
+  const staleMs = (options.staleHours ?? envInt('REASSURANCE_STALE_HOURS', 24, { min: 0 })) * 3600000;
   const betweenMs =
-    (options.minHoursBetweenPings ?? (Number(process.env.REASSURANCE_MIN_HOURS) || 20)) * 3600000;
+    (options.minHoursBetweenPings ?? envInt('REASSURANCE_MIN_HOURS', 20, { min: 0 })) * 3600000;
   const skipStatuses = new Set([
     DEFAULT_REPAIR_TICKET_STATUS,
     'Picked Up',
@@ -746,7 +747,7 @@ async function appendRow(tabName, rowData) {
 
 // Generic tab read cap. 1000 was too low: once opt_in_contacts crossed it,
 // contact dedup and broadcasts would silently miss everyone below the fold.
-const GENERIC_ROW_CAP = Number(process.env.SHEETS_GENERIC_MAX_ROWS) || 10000;
+const GENERIC_ROW_CAP = envInt('SHEETS_GENERIC_MAX_ROWS', 10000, { min: 1 });
 async function readAllRows(tabName) {
   const res = await sheets().spreadsheets.values.get({
     spreadsheetId: SHEET_ID(),

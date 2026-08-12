@@ -2,6 +2,7 @@ const { getPendingBroadcasts, setBroadcastStatus, getOptInContacts } = require('
 const {
   sendTemplateMessage, isLikelySendablePhone, sanitizeTemplateParam,
 } = require('../services/whatsapp');
+const { envInt } = require('../utils/env');
 
 const LANG_CODE = { english: 'en', hindi: 'hi', gujarati: 'gu' };
 
@@ -42,8 +43,8 @@ async function runBroadcastQueue() {
 // opt-in list won't approach this; raise BROADCAST_MAX_RECIPIENTS deliberately
 // if a genuine campaign ever needs to.
 function broadcastRecipientCap() {
-  const n = Number(process.env.BROADCAST_MAX_RECIPIENTS);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 5000;
+  // min: 0 — an explicit 0 disables broadcasts entirely, which is meaningful.
+  return envInt('BROADCAST_MAX_RECIPIENTS', 5000, { min: 0 });
 }
 
 async function runBroadcast(broadcast) {

@@ -13,6 +13,10 @@ const M = require('../messages/index');
  * most one lead per phone every LEAD_MIN_INTERVAL_MS. On collision we thank the
  * customer, drop the second submission, and don't ping owners a second time.
  */
+/** Redact a phone to last-4 for logs. Module scope so it's in scope in the
+ *  owner-alert error path too, not just inside the create-lead try block. */
+const _rp = (p) => (p && p.length > 4) ? '***' + p.slice(-4) : '***';
+
 const LEAD_MIN_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
 const _lastLeadAt = new Map(); // phone -> timestamp
 setInterval(() => {
@@ -103,7 +107,6 @@ async function handleCorporateFlow(phone, text, session, intent = null) {
         // Log only the bot-generated id + redacted phone. Name/company are raw
         // customer input — logging them risks log-injection (newlines forging
         // fake lines) and puts PII in log tails. They're already in the sheet.
-        const _rp = (p) => (p && p.length > 4) ? '***' + p.slice(-4) : '***';
         console.log(`[LEAD] Created ${leadId} from ${_rp(phone)}`);
       } catch (err) {
         console.error('[LEAD] Failed to create:', err.message);
@@ -123,7 +126,7 @@ async function handleCorporateFlow(phone, text, session, intent = null) {
       // Corporate leads are branch-agnostic — general owners only, no branch-only extras.
       for (const ownerPhone of getRecipientsForCorporate()) {
         sendTextMessage(ownerPhone, ownerMsg).catch((e) => {
-          console.error(`[OWNER-ALERT] Failed to notify ${ownerPhone} about lead ${leadId || '(no id)'}:`, e.message);
+          console.error(`[OWNER-ALERT] Failed to notify ${_rp(ownerPhone)} about lead ${leadId || '(no id)'}:`, e.message);
         });
       }
 

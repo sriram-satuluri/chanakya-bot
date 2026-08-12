@@ -20,14 +20,10 @@
  * counted (they are free and not spam-relevant).
  */
 
-function envInt(name, fallback) {
-  const n = Number(process.env[name]);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
+const { envInt, envBool } = require('./env');
 
 function killSwitchOn() {
-  const v = String(process.env.OUTBOUND_KILL_SWITCH || '').toLowerCase();
-  return v === '1' || v === 'true' || v === 'yes';
+  return envBool('OUTBOUND_KILL_SWITCH', false);
 }
 
 const WINDOW_MIN_MS = 60 * 1000;
@@ -56,8 +52,10 @@ function assertCanSend() {
   }
 
   const now = Date.now();
-  const maxMin = envInt('OUTBOUND_MAX_PER_MIN', 240);
-  const maxDay = envInt('OUTBOUND_MAX_PER_DAY', 20000);
+  // min: 0 — an explicit 0 means "block every send", which is a legitimate
+  // (if blunt) operator choice and must not be silently turned into 240.
+  const maxMin = envInt('OUTBOUND_MAX_PER_MIN', 240, { min: 0 });
+  const maxDay = envInt('OUTBOUND_MAX_PER_DAY', 20000, { min: 0 });
 
   if (now >= minute.resetAt) minute = { count: 0, resetAt: now + WINDOW_MIN_MS, breached: false };
   if (now >= day.resetAt) day = { count: 0, resetAt: now + WINDOW_DAY_MS, breached: false };
