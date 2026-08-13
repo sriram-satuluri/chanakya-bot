@@ -1,8 +1,37 @@
-# Part 3 — WhatsApp Flow for repair intake (PROPOSAL — nothing built)
+# Part 3 — WhatsApp Flow for repair intake (DEFERRED)
 
-Status: **scope only, awaiting your go-ahead.** No code in this repo has been
-changed for this. The existing `ask_name → ask_bag_type → ask_problem →
-ask_photo → ask_store` flow is untouched and remains the only intake path.
+**Status: DEFERRED — pending input from the team. Do not build or submit.**
+
+No code in this repo has been changed for this, and none should be until the
+question below is answered. The existing `ask_name → ask_bag_type →
+ask_problem → ask_photo → ask_store` flow is untouched and remains the only
+intake path.
+
+### Why it's deferred
+
+The case for Flows rests on reducing mid-flow abandonment, but the
+abandonment statistics that argument is usually built on come from **cold lead
+capture** — someone with no prior commitment filling in a form. That is not
+this situation. A customer booking a repair is already holding a damaged bag
+and has decided to get it fixed; they are a far more committed moment than a
+cold lead, so the drop-off pressure Flows are designed to relieve may simply
+not exist here.
+
+**Open action:** ask the store team whether they have actually observed
+customers struggling with or abandoning the current 5-step booking. If they
+have not, this proposal should stay shelved — it would spend Meta review
+cycles (×3, see below) solving a problem we have no evidence of.
+
+Everything below is preserved so it is ready to execute if that answer comes
+back positive.
+
+### Decisions already recorded
+
+| Question | Decision |
+|---|---|
+| Photo inside the Flow? | **No** — collected as a normal message after the Flow completes (§2) |
+| One Flow or three? | **Three**, one per language (§4) |
+| Build now? | **No** — deferred pending the team's input |
 
 ---
 
@@ -61,8 +90,8 @@ whether the image arrives as a media handle to fetch, or inline, and whether
 static flows can carry it at all given payload limits. Getting that wrong
 means a rebuilt photo path and a second Meta review cycle.
 
-**Proposed: keep the photo as a normal WhatsApp message after the Flow
-completes.** Sequence becomes:
+**DECIDED: the photo stays out of the Flow**, collected as a normal WhatsApp
+message after it completes. Sequence becomes:
 
 1. Customer taps "Repair My Bag" → Flow opens → fills the four fields → submits.
 2. Bot receives `nfm_reply`, stores the four values in the session, and asks
@@ -74,6 +103,48 @@ This reuses the entire Cloudinary chain with zero changes, sidesteps the
 PhotoPicker uncertainty, and still removes 4 of the 5 round-trips. If
 PhotoPicker later proves clean, moving it into the Flow is a contained
 follow-up rather than a prerequisite.
+
+---
+
+## 2a. BINDING CONSTRAINT — ticket creation stays atomic
+
+**Whenever this is built, the ticket row must NOT be written to the sheet
+until the photo has also been received.** This is a hard requirement, not a
+preference.
+
+The tempting shortcut is to create the ticket the moment the Flow is
+submitted — the four fields are right there — and then patch the photo URL
+into the row when it arrives. **Do not do this.** It opens a window in which
+a ticket exists with no photo at all, permanently, if the customer never
+sends one. Someone submits the Flow, gets distracted, never follows up, and
+the sheet now holds a ticket that looks real to staff but has no evidence of
+the damage — the exact thing the photo is there to provide, and the thing the
+before/after record depends on in a dispute.
+
+**The current step-by-step flow structurally cannot produce that state**,
+because `createRepairTicket()` is only reached after `ask_photo` has run. That
+property is worth more than the convenience of an early write, and the Flow
+version must preserve it exactly.
+
+Required shape:
+
+1. Flow submits → parse `nfm_reply`, hold the four values **in session only**
+   (`collectedData`), exactly as the current flow accumulates them.
+2. Set `flowStep = 'ask_photo'` and ask for the photo using the existing step.
+3. Photo arrives → existing `downloadMedia()` → `uploadBuffer()` runs.
+4. **Only now** call `generateTicketId()` → `createRepairTicket()` with all
+   five values together, as a single write.
+
+Note this also means the Flow version inherits the current flow's existing
+behaviour for a *failed* photo upload — the ticket is still created, with an
+empty photo URL and a warning to the customer, because at that point they did
+send a photo and the failure is ours, not theirs. The constraint is about
+never creating a ticket for a customer who never sent one at all.
+
+Session expiry is the acceptable failure mode here, and matches today: if the
+customer abandons after the Flow but before the photo, the session times out
+and **no ticket is created** — which is correct. An abandoned booking should
+leave no trace, not a half-formed record for staff to chase.
 
 ---
 
@@ -221,18 +292,34 @@ existing `resolveBagType()` / `resolveProblem()` resolvers already accept
 deliberate — the completion handler can feed these straight into the current
 resolvers with no new mapping table to keep in sync.
 
-**Localisation.** Flow JSON is per-Flow, so trilingual means either three
-published Flows (one per language, selected by stored preference) or one
-English Flow. Three Flows is the honest answer for a trilingual customer base,
-and triples the review surface — worth deciding before submitting.
+**Localisation — DECIDED: three separate Flows**, one per language, selected
+by the customer's stored language preference. This matches the pattern already
+used for the status/feedback templates (`_en` / `_hi` / `_gu`) and for the
+trilingual keyword sets, rather than introducing a second, different approach
+using conditional logic inside a single Flow.
+
+Consequences to plan for:
+
+- The JSON above is the **English** Flow. Two more are needed with the
+  `title`, `label`, `text` and `data-source` titles translated. The `id`
+  values must stay identical across all three so one completion handler
+  works for all of them.
+- Three Flow ids to store, e.g. `REPAIR_FLOW_ID_EN` / `_HI` / `_GU`,
+  selected the same way `TEMPLATE_BY_LANG` already selects templates.
+- **Three Meta review cycles**, and three again for any future wording
+  change. This is the main ongoing cost of the decision and a large part of
+  why the deferral question above matters.
 
 ---
 
-## Open questions for you
+## Decisions recorded
 
-1. **Photo in-Flow or after?** I recommend after (§2). Changing this changes
-   the build materially.
-2. **One Flow or three (per language)?** Three matches the bot's existing
-   trilingual promise; one is faster to get approved.
-3. **Is the round-trip saving worth it** given intake already works? The
-   honest case for Flows here is fewer drop-offs mid-flow, not capability.
+1. **Photo in-Flow or after?** → **After.** Photo stays a normal message; the
+   existing Cloudinary path is reused unchanged (§2), subject to the atomicity
+   constraint in §2a.
+2. **One Flow or three?** → **Three**, one per language (§4).
+3. **Build now?** → **No.** Deferred pending the team's answer on whether
+   customers actually struggle with the current booking flow (see top).
+
+Nothing further should be built or submitted against this document until that
+third point is resolved.
