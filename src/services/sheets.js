@@ -139,6 +139,8 @@ const TICKET_COL = {
   RESERVED_P: 15,
   OPTED_IN: 16, LAST_STATUS_SENT: 17, LAST_UPDATE_SENT_AT: 18,
   STOP_REASON: 19, CONSECUTIVE_FAILURE_COUNT: 20,
+  // V-Y — post-pickup feedback (see jobs/feedbackRequest.js)
+  PICKED_UP_SEEN_AT: 21, FEEDBACK_REQUESTED_AT: 22, RATING: 23, RATING_AT: 24,
 };
 /** A1 column letter for a 0-based TICKET_COL index (A-Z is enough here). */
 function ticketColLetter(idx) {
@@ -465,6 +467,74 @@ async function setRepairUpdatesOptIn(phone, optedIn, opts = {}) {
     changed++;
   }
   return changed;
+}
+
+// ══════════════════════════════════════════════════════════════
+// POST-PICKUP FEEDBACK (repair_tickets V-Y)
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * Collected tickets that are candidates for a feedback request.
+ * Deliberately keyed on 'Picked Up' rather than 'Ready for Pickup': the
+ * customer has only experienced the finished repair once they've actually
+ * collected the bag and looked at it.
+ */
+async function getTicketsForFeedback() {
+  const rows = await readTicketRows();
+  const out = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    const ticketId = String(r[TICKET_COL.TICKET_ID] ?? '').trim();
+    if (!ticketId || !/^CHA-/i.test(ticketId)) continue;
+    if (canonicalStatus(r[TICKET_COL.STATUS]) !== 'Picked Up') continue;
+    // Already rated → nothing left to do for this ticket.
+    if (String(r[TICKET_COL.RATING] ?? '').trim()) continue;
+
+    out.push({
+      ticketId,
+      phone:             String(r[TICKET_COL.PHONE] ?? '').trim(),
+      customerName:      String(r[TICKET_COL.CUSTOMER_NAME] ?? '').trim(),
+      store:             String(r[TICKET_COL.STORE] ?? '').trim(),
+      language:          String(r[TICKET_COL.LANGUAGE] ?? '').trim().toLowerCase() || 'english',
+      pickedUpSeenAt:    parseISTString(r[TICKET_COL.PICKED_UP_SEEN_AT]),
+      feedbackRequestedAt: parseISTString(r[TICKET_COL.FEEDBACK_REQUESTED_AT]),
+      rowIndex:          i + 1,
+    });
+  }
+  return out;
+}
+
+/** @param {{pickedUpSeenAt?:Date, feedbackRequestedAt?:Date, rating?:number, ratingAt?:Date}} patch */
+async function recordFeedbackState(rowIndex, patch = {}) {
+  const data = [];
+  const put = (colIdx, value) => data.push({
+    range: `${TABS.TICKETS}!${ticketColLetter(colIdx)}${rowIndex}`,
+    values: [[value]],
+  });
+  if (patch.pickedUpSeenAt !== undefined) put(TICKET_COL.PICKED_UP_SEEN_AT, formatIST(patch.pickedUpSeenAt));
+  if (patch.feedbackRequestedAt !== undefined) put(TICKET_COL.FEEDBACK_REQUESTED_AT, formatIST(patch.feedbackRequestedAt));
+  if (patch.rating !== undefined) put(TICKET_COL.RATING, String(patch.rating));
+  if (patch.ratingAt !== undefined) put(TICKET_COL.RATING_AT, formatIST(patch.ratingAt));
+  if (!data.length) return;
+  await sheets().spreadsheets.values.batchUpdate({
+    spreadsheetId: SHEET_ID(),
+    requestBody: { valueInputOption: 'USER_ENTERED', data },
+  });
+}
+
+/**
+ * The ticket a rating reply belongs to: most recently asked, not yet rated.
+ * Returns null when this customer has no outstanding feedback request, which
+ * is what stops a stray "3" in conversation being logged as a rating.
+ */
+async function findTicketAwaitingRating(phone) {
+  const want = String(phone ?? '').replace(/[^0-9]/g, '');
+  if (!want) return null;
+  const candidates = (await getTicketsForFeedback())
+    .filter((t) => String(t.phone).replace(/[^0-9]/g, '') === want && t.feedbackRequestedAt);
+  if (!candidates.length) return null;
+  candidates.sort((a, b) => b.feedbackRequestedAt - a.feedbackRequestedAt);
+  return candidates[0];
 }
 
 /** True if this phone has at least one open ticket still receiving updates. */
@@ -836,6 +906,7 @@ module.exports = {
   getCustomerLanguage, setCustomerLanguage,
   getTicketsForProactiveUpdate, recordProactiveUpdate,
   getOpenTicketsForPhone, setRepairUpdatesOptIn, hasOpenOptedInTicket,
+  getTicketsForFeedback, recordFeedbackState, findTicketAwaitingRating,
   TICKET_COL,
   getPendingBroadcasts, markBroadcastSent, setBroadcastStatus,
   applyRepairTicketStatusDropdown,

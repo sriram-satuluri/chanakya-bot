@@ -466,6 +466,19 @@ const messages = {
     gujarati:`✅ રિપેર અપડેટ બંધ કરી દીધા. *track* લખીને ગમે ત્યારે જોઈ શકો છો, અને *અપડેટ ચાલુ* મોકલીને ફરી ચાલુ કરી શકો છો.`,
   },
 
+  // ── Post-service feedback ──
+  feedback_thanks: {
+    english: `🙏 Thank you for the feedback — it genuinely helps us. We hope to see you again at Chanakya!`,
+    hindi:   `🙏 आपकी राय के लिए धन्यवाद — इससे हमें वाकई मदद मिलती है। फिर मिलेंगे Chanakya पर!`,
+    gujarati:`🙏 તમારા અભિપ્રાય બદલ આભાર — એનાથી અમને ખરેખર મદદ મળે છે. ફરી મળીશું Chanakya પર!`,
+  },
+
+  feedback_thanks_low: {
+    english: `🙏 Thank you for telling us — we're sorry it wasn't right.\n\nOur team has been notified and will contact you shortly to put it right.`,
+    hindi:   `🙏 बताने के लिए धन्यवाद — खेद है कि अनुभव अच्छा नहीं रहा।\n\nहमारी टीम को सूचित कर दिया गया है, वे जल्द ही संपर्क करेंगे।`,
+    gujarati:`🙏 જણાવવા બદલ આભાર — માફ કરશો કે અનુભવ સારો ન રહ્યો.\n\nઅમારી ટીમને જાણ કરી દીધી છે, તેઓ ટૂંક સમયમાં સંપર્ક કરશે.`,
+  },
+
   repair_updates_none_open: {
     english: `You don't have an open repair with us right now, so there are no updates to change. Tap *Repair My Bag* to book one.`,
     hindi:   `अभी आपकी कोई चालू रिपेयर नहीं है, इसलिए बदलने के लिए कोई अपडेट नहीं। नई रिपेयर के लिए *बैग रिपेयर करें* पर टैप करें।`,

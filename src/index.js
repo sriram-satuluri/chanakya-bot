@@ -64,6 +64,7 @@ const { handleWebhook } = require('./webhook/handler');
 const { pollStatusChanges } = require('./jobs/statusPoller');
 const { runBroadcastQueue } = require('./jobs/broadcastRunner');
 const { sendPickupReminders } = require('./jobs/pickupReminder');
+const { sendFeedbackRequests } = require('./jobs/feedbackRequest');
 // NB: jobs/reassurancePing.js is retired — superseded by the nudge inside
 // jobs/statusPoller.js. Intentionally no longer imported or scheduled.
 
@@ -259,6 +260,14 @@ cron.schedule('0 * * * *', runOnceAtATime('broadcastQueue', runBroadcastQueue));
 // Kept separate from the status updates above — it solves a different problem
 // (bag ready but not collected for a week), not a status change.
 cron.schedule('0 9 * * *', runOnceAtATime('pickupReminder', sendPickupReminders));
+
+// Post-pickup feedback requests. Runs hourly; the job itself enforces the
+// FEEDBACK_DELAY_HOURS wait and the same quiet-hours window as the poller,
+// so an hourly tick just means "check whether anyone is due".
+cron.schedule(
+  cronOrDefault(process.env.FEEDBACK_CRON, '15 * * * *', 'FEEDBACK_CRON'),
+  runOnceAtATime('feedbackRequest', sendFeedbackRequests),
+);
 
 // NB: the daily "reassurancePing" job was retired — its "still working on it"
 // message is now the NUDGE_AFTER_DAYS nudge inside the status poller, which is

@@ -44,6 +44,7 @@ const { sendLanguagePicker, handleLanguageChoice } = require('../flows/language'
 const {
   handleRepairUpdatesAnswer, handleRepairUpdatesCommand,
 } = require('../flows/repairUpdates');
+const { handleRatingReply } = require('../flows/feedback');
 
 // Message de-duplication lives in utils/dedupStore.js — it is disk-backed so
 // that a restart during Meta's retry window cannot re-process a message and
@@ -237,6 +238,18 @@ async function routeMessage({ phone, text, msgType, message, session, intent }) 
   // conversation (including the main menu) is in their language from message one.
   if (session.needsLanguagePick) {
     return sendLanguagePicker(phone, session.language);
+  }
+
+  // Feedback rating reply (quick-reply payload, or a bare 1-5). Checked before
+  // the menu/flow routing so a "1" answering our own question isn't read as
+  // menu input. If there's no outstanding feedback request, handleRatingReply
+  // returns false and we fall through to normal routing.
+  if (intent === 'feedback_rating') {
+    const m = String(text).match(/^rate_([1-5])$/i) || String(text).match(/^([1-5])$/);
+    if (m) {
+      const recorded = await handleRatingReply(phone, Number(m[1]), session.language);
+      if (recorded) return;
+    }
   }
 
   // Standing repair-update commands ("stop updates" / "resume updates").

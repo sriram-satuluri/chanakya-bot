@@ -115,6 +115,13 @@ function detectIntent(text, session) {
   ]);
   if (CHANGE_LANG_EXACT.has(lower)) return 'change_language';
 
+  // Feedback rating. 'rate_N' is the quick-reply payload from the feedback
+  // template; a bare digit 1-5 is accepted too (customers often just type a
+  // number). A bare digit only counts as a rating if there is actually an
+  // outstanding feedback request — flows/feedback.js checks that and ignores
+  // it otherwise, so a stray "3" mid-conversation is never logged as a score.
+  if (/^rate_[1-5]$/.test(lower) || /^[1-5]$/.test(lower)) return 'feedback_rating';
+
   // "Talk to a person" — EXACT match, in the same style as the repair-update
   // phrases below. The pre-existing `escalate` intent further down already
   // catches loose English/romanized words ('human', 'agent', 'baat karo'), but
