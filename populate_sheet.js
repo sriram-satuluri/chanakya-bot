@@ -29,8 +29,22 @@ const { google } = require('googleapis');
     for (const [tab, headers] of Object.entries(headerMap)) {
       data.push({ range: `${tab}!A1:${String.fromCharCode(64 + headers.length)}1`, values: [headers] });
     }
-    // Ticket counter at P1
-    data.push({ range: 'repair_tickets!P1', values: [[0]] });
+    // Ticket counter at P1 — ONLY initialise it if it is empty.
+    //
+    // This script is re-run whenever headers change, and unconditionally
+    // writing 0 here would reset the counter on a live sheet: the next ticket
+    // would be CHA-YYYY-0001 again, colliding with existing tickets and
+    // hijacking another customer's tracking. Read first, write only if unset.
+    const existing = await sheets.spreadsheets.values.get({
+      spreadsheetId: id, range: 'repair_tickets!P1',
+    });
+    const counter = existing.data.values?.[0]?.[0];
+    if (counter === undefined || String(counter).trim() === '') {
+      data.push({ range: 'repair_tickets!P1', values: [[0]] });
+      console.log('Ticket counter P1 was empty — initialising to 0.');
+    } else {
+      console.log(`Ticket counter P1 already set (${counter}) — left untouched.`);
+    }
 
     const res = await sheets.spreadsheets.values.batchUpdate({
       spreadsheetId: id,
