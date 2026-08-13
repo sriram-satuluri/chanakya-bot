@@ -326,7 +326,7 @@ async function routeMessage({ phone, text, msgType, message, session, intent }) 
 
   // Explicit "talk to support" once no transactional flow consumed the message.
   if (intent === 'escalate') {
-    return handleEscalation(phone, session.language);
+    return handleEscalation(phone, session.language, text);
   }
 
   // T&Cs is one-shot — never holds session state. Route before fallback.

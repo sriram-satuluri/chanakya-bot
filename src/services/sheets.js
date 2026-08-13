@@ -429,6 +429,11 @@ async function getOpenTicketsForPhone(phone) {
       rowIndex: i + 1,
       optedIn: isSheetTrue(r[TICKET_COL.OPTED_IN]),
       stopReason: String(r[TICKET_COL.STOP_REASON] ?? '').trim(),
+      // Carried so callers can route owner alerts to the right branch and
+      // give the humans real context (see utils/ownerPhones.getRecipientsForStore).
+      store: String(r[TICKET_COL.STORE] ?? '').trim(),
+      customerName: String(r[TICKET_COL.CUSTOMER_NAME] ?? '').trim(),
+      language: String(r[TICKET_COL.LANGUAGE] ?? '').trim().toLowerCase() || 'english',
     });
   }
   return out;

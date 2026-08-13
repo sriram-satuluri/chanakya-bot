@@ -111,7 +111,7 @@ function getInboundImageMediaId(message = {}) {
 async function handleRepairFlow(phone, text, msgType, rawMessage, session, intent = null) {
   const lang = session.language || 'english';
 
-  if (intent === 'escalate') return handleEscalation(phone, lang);
+  if (intent === 'escalate') return handleEscalation(phone, lang, text);
 
   // If no active repair flow, start it
   if (!session.currentFlow || session.currentFlow !== 'repair') {

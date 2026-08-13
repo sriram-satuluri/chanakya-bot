@@ -115,6 +115,33 @@ function detectIntent(text, session) {
   ]);
   if (CHANGE_LANG_EXACT.has(lower)) return 'change_language';
 
+  // "Talk to a person" — EXACT match, in the same style as the repair-update
+  // phrases below. The pre-existing `escalate` intent further down already
+  // catches loose English/romanized words ('human', 'agent', 'baat karo'), but
+  // had NO Devanagari or Gujarati script entries at all, so a customer writing
+  // naturally in Hindi or Gujarati could not reach a human. These fill that gap.
+  // Exact match (not substring) so an ordinary sentence mentioning "team" or
+  // "વાત" can't hijack a repair flow mid-way.
+  const HANDOFF_EXACT = new Set([
+    // English
+    'talk to a person', 'talk to person', 'talk to someone', 'talk to a human',
+    'speak to someone', 'speak to a person', 'talk to team', 'talk to the team',
+    'real person', 'human please', 'agent please', 'connect me', 'call me back',
+    // Hindi — Devanagari
+    'किसी से बात कराओ', 'किसी से बात करनी है', 'इंसान से बात', 'व्यक्ति से बात',
+    'स्टाफ से बात', 'टीम से बात', 'मुझे बात करनी है', 'किसी से बात',
+    // Hindi — romanized
+    'kisi se baat karao', 'kisi se baat', 'insaan se baat', 'staff se baat',
+    'team se baat', 'baat karni hai',
+    // Gujarati — Gujarati script
+    'કોઈ સાથે વાત', 'કોઈની સાથે વાત', 'વ્યક્તિ સાથે વાત', 'સ્ટાફ સાથે વાત',
+    'ટીમ સાથે વાત', 'મારે વાત કરવી છે',
+    // Gujarati — romanized
+    'koi sathe vaat', 'koi sathe vat', 'staff sathe vaat', 'team sathe vaat',
+    'mare vaat karvi che',
+  ]);
+  if (HANDOFF_EXACT.has(lower)) return 'escalate';
+
   // Proactive REPAIR-UPDATE opt-out/in. Deliberately a DIFFERENT keyword set
   // from the marketing STOP/RESUME below: bare "stop" stays bound to marketing
   // (WhatsApp convention), while these two-word phrases control transactional

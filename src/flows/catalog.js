@@ -11,7 +11,7 @@ const M = require('../messages/index');
 async function handleCatalogFlow(phone, text, session, intent = null) {
   const lang = session.language || 'english';
 
-  if (intent === 'escalate') return handleEscalation(phone, lang);
+  if (intent === 'escalate') return handleEscalation(phone, lang, text);
 
   // Start of catalog flow — show category picker
   if (!session.currentFlow || session.currentFlow !== 'catalog') {

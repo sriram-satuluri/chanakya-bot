@@ -45,7 +45,7 @@ function shortStatusLabel(status, lang) {
 async function handleTrackFlow(phone, text, session, intent = null) {
   const lang = session.language || 'english';
 
-  if (intent === 'escalate') return handleEscalation(phone, lang);
+  if (intent === 'escalate') return handleEscalation(phone, lang, text);
 
   const firstEntry = !session.currentFlow || session.currentFlow !== 'track';
 

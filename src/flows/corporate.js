@@ -27,7 +27,7 @@ setInterval(() => {
 async function handleCorporateFlow(phone, text, session, intent = null) {
   const lang = session.language || 'english';
 
-  if (intent === 'escalate') return handleEscalation(phone, lang);
+  if (intent === 'escalate') return handleEscalation(phone, lang, text);
 
   const data = session.collectedData || {};
 

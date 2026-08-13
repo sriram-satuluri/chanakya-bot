@@ -88,6 +88,47 @@ function getRecipientsForCorporate() {
 }
 
 /**
+ * Resolve any reference to a store into a branch slug.
+ *
+ * Callers hold a store in several shapes depending on where it came from:
+ *   - a flow button id      'store_sursagar'
+ *   - a sheet store name    'Sursagar (Opp. Pratap Talkies)'
+ *   - a bare slug           'sursagar'
+ * Substring matching handles all three, and also survives staff retyping the
+ * store cell slightly differently by hand.
+ *
+ * @returns {'alkapuri'|'sursagar'|null} null when there is no store context
+ */
+function branchSlugFromStoreHint(hint) {
+  const s = String(hint ?? '').toLowerCase();
+  if (!s.trim()) return null;
+  if (s.includes('sursagar')) return 'sursagar';
+  if (s.includes('alkapuri')) return 'alkapuri';
+  return null;
+}
+
+/**
+ * THE shared "who should hear about this?" helper for anything tied to a store.
+ *
+ * General owners (Vedant, Vatsal) are always notified. A branch-only owner
+ * (Nilesh on BRANCH_OWNER_SURSAGAR) is added ONLY when the store context
+ * actually resolves to their branch.
+ *
+ * Unknown or absent store context deliberately falls back to general owners
+ * only — we never guess a branch owner in. Being pinged about something that
+ * turns out not to be your branch is a small annoyance; being pinged about
+ * every general enquiry because the code guessed is how people start ignoring
+ * the alerts entirely.
+ *
+ * @param {string|null|undefined} storeHint button id, sheet store name, or slug
+ * @returns {string[]} deduped, general owners first
+ */
+function getRecipientsForStore(storeHint) {
+  const slug = branchSlugFromStoreHint(storeHint);
+  return slug ? getRecipientsForRepair(slug) : getGeneralOwnerPhones();
+}
+
+/**
  * @deprecated Superseded by getRecipientsForRepair(branchSlug) and
  * getRecipientsForCorporate(). Kept temporarily so any external caller doesn't
  * break — currently mirrors the general list (the safe default).
@@ -101,5 +142,7 @@ module.exports = {
   getBranchOwnerPhones,
   getRecipientsForRepair,
   getRecipientsForCorporate,
+  getRecipientsForStore,
+  branchSlugFromStoreHint,
   getOwnerPhoneNumbers, // deprecated
 };
