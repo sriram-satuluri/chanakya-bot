@@ -37,17 +37,14 @@ async function maybeAttachTermsDoc(phone, lang) {
 const MENU_BUTTONS = {
   english: [
     { id: 'btn_repair',    title: '🔧 Repair My Bag' },
-    { id: 'btn_shop',      title: '🛍️ Shop for Bags' },
     { id: 'btn_track',     title: '📍 Track My Repair' },
   ],
   hindi: [
     { id: 'btn_repair',    title: '🔧 बैग रिपेयर करें' },
-    { id: 'btn_shop',      title: '🛍️ बैग खरीदें' },
     { id: 'btn_track',     title: '📍 रिपेयर ट्रैक करें' },
   ],
   gujarati: [
     { id: 'btn_repair',    title: '🔧 બેગ રિપેર કરો' },
-    { id: 'btn_shop',      title: '🛍️ બેગ ખરીદો' },
     { id: 'btn_track',     title: '📍 રિપેર ટ્રૅક કરો' },
   ],
 };
