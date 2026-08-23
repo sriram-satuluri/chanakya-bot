@@ -190,17 +190,10 @@ const messages = {
     gujarati:`*{{bagType}}* નોંધ કર્યું. તેમાં શું સમસ્યા છે?`,
   },
 
-  ask_photo: {
-    english: `Got it! Now please *send a photo* of your bag, clearly showing the damaged area. 📸`,
-    hindi:   `ठीक है! अब कृपया अपने बैग की *फोटो भेजें*, जिसमें खराब हिस्सा साफ दिखे। 📸`,
-    gujarati:`સારું! હવે કૃપા કરીને આપની બેગની *ફોટો મોકલો*, જેમાં ખામી સ્પષ્ટ દેખાય. 📸`,
-  },
-
-  photo_received: {
-    english: `Photo received! ✅\n\nWhich store will you bring the bag to?\n\n📍 *Alkapuri* — Race Course Road\n📍 *Sursagar* — Opp. Pratap Talkies`,
-    hindi:   `फोटो मिल गई! ✅\n\nआप बैग किस स्टोर पर लाएंगे?\n\n📍 *Alkapuri* — Race Course Road\n📍 *Sursagar* — Pratap Talkies के सामने`,
-    gujarati:`ફોટો મળી! ✅\n\nઆપ બેગ કયા સ્ટોર પર લઈ આવશો?\n\n📍 *Alkapuri* — Race Course Road\n📍 *Sursagar* — Pratap Talkies સામે`,
-  },
+  // NB: the old ask_photo / photo_received keys were removed when the photo
+  // moved to AFTER ticket creation. photo_received in particular used to lead
+  // the store menu and announced a photo that had not arrived yet. Their
+  // replacements are photo_request_after_ticket / photo_attached below.
 
   repair_confirmed: {
     english: `✅ *Repair Request Confirmed!*\n\n🎫 *Ticket ID:* {{ticketId}}\n👜 *Bag:* {{bagType}}\n🔧 *Problem:* {{problem}}\n🏪 *Bring to:* {{store}}\n\n📋 *Next step:* Please bring your bag to *{{store}}* at your convenience (10 AM – 9 PM, Mon–Sun). Our team will inspect it and share a quotation — *repair work begins only after you approve the quote.*\n\n_Save your Ticket ID! Track anytime:_\n*TRACK {{ticketId}}*`,

@@ -142,4 +142,56 @@ test('an image with no open ticket is answered, not silently swallowed', async (
   assert.ok(sent.length === 1, 'customer gets an explanation rather than silence');
 });
 
+test('an image sent after booking is filed, NOT treated as "show me the menu"', async () => {
+  // detectIntent maps an image with no active flow to 'main_menu', so this
+  // used to restart the whole conversation. routeMessage must intercept the
+  // image before that branch.
+  const wp = require.resolve('../src/services/whatsapp');
+  require(wp);
+  const sent = [];
+  require.cache[wp].exports.sendTextMessage = async (to, body) => { sent.push(body); return {}; };
+  require.cache[wp].exports.sendButtonMessage = async (to, body) => { sent.push(body); return {}; };
+  require.cache[wp].exports.markAsRead = async () => ({});
+  require.cache[wp].exports.downloadMedia = async () => Buffer.from('img');
+
+  const cp = require.resolve('../src/services/cloudinary');
+  require(cp);
+  require.cache[cp].exports.uploadBuffer = async () => 'https://res.cloudinary.com/x/p.jpg';
+
+  const sp = require.resolve('../src/services/sheets');
+  require(sp);
+  const attached = [];
+  require.cache[sp].exports.logAnalytics = async () => {};
+  require.cache[sp].exports.getCustomerLanguage = async () => 'english';
+  require.cache[sp].exports.addOrUpdateContact = async () => {};
+  require.cache[sp].exports.hasOpenOptedInTicket = async () => false;
+  require.cache[sp].exports.findRecentTicketAwaitingPhoto = async () => ({
+    ticketId: 'CHA-2026-0777', rowIndex: 9, store: 'Alkapuri (Race Course Road)', language: 'english',
+  });
+  require.cache[sp].exports.attachBeforePhoto = async (row, url) => { attached.push({ row, url }); return true; };
+
+  for (const k of Object.keys(require.cache)) {
+    if (/chanakya-bot[\\/]src[\\/](webhook|flows)/.test(k)) delete require.cache[k];
+  }
+  const { handleWebhook } = require('../src/webhook/handler');
+
+  await handleWebhook({
+    headers: {}, rawBody: null,
+    body: {
+      object: 'whatsapp_business_account',
+      entry: [{ changes: [{ field: 'messages', value: {
+        messages: [{ id: 'wamid.IMG' + Date.now(), from: '919999000009', type: 'image', image: { id: 'media-9' } }],
+        contacts: [{ profile: { name: 'T' } }],
+      } }] }],
+    },
+  }, { sendStatus() {}, status() { return this; }, json() {}, send() {} });
+  await new Promise((r) => setTimeout(r, 400));
+
+  assert.strictEqual(attached.length, 1, 'photo filed against the awaiting ticket');
+  assert.ok(
+    !sent.some((m) => /Welcome to/i.test(m || '')),
+    'the welcome/main menu must NOT be sent — that was the conversation restarting',
+  );
+});
+
 test.after(() => { try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* temp dir */ } });

@@ -38,14 +38,17 @@ const MENU_BUTTONS = {
   english: [
     { id: 'btn_repair',    title: '🔧 Repair My Bag' },
     { id: 'btn_track',     title: '📍 Track My Repair' },
+    { id: 'btn_language',  title: '🌐 Language' },
   ],
   hindi: [
     { id: 'btn_repair',    title: '🔧 बैग रिपेयर करें' },
     { id: 'btn_track',     title: '📍 रिपेयर ट्रैक करें' },
+    { id: 'btn_language',  title: '🌐 भाषा बदलें' },
   ],
   gujarati: [
     { id: 'btn_repair',    title: '🔧 બેગ રિપેર કરો' },
     { id: 'btn_track',     title: '📍 રિપેર ટ્રૅક કરો' },
+    { id: 'btn_language',  title: '🌐 ભાષા બદલો' },
   ],
 };
 

@@ -265,6 +265,17 @@ async function routeMessage({ phone, text, msgType, message, session, intent }) 
     return handleRepairUpdatesCommand(phone, session.language, intent === 'repair_updates_on');
   }
 
+  // Late-arriving before-photo.
+  //
+  // MUST be checked before the main_menu branch below: detectIntent maps an
+  // image with no active flow to 'main_menu', so an image sent after booking
+  // was restarting the whole conversation instead of being filed against the
+  // ticket. An image is never a request for the menu.
+  if (text === '__IMAGE__' && !session.currentFlow) {
+    const handled = await handleLatePhoto(phone, message, session.language);
+    if (handled) return;
+  }
+
   // Explicit "go to main menu" always resets and shows the menu — escape hatch.
   // Also resets the fallback counter so a returning user doesn't get insta-escalated
   // after previously hitting 3 fallbacks.
@@ -341,16 +352,6 @@ async function routeMessage({ phone, text, msgType, message, session, intent }) 
         // than dropping them into an unrelated flow.
         return sendLanguagePicker(phone, session.language);
     }
-  }
-
-  // Late-arriving before-photo. Reached only when no flow owns the message, so
-  // an image sent mid-flow still belongs to that flow. The photo is requested
-  // after the ticket is created and may turn up minutes or days later — from
-  // the bus, or once they're home with the bag — so we file it against their
-  // most recent ticket that has no photo yet rather than ignoring it.
-  if (text === '__IMAGE__') {
-    const handled = await handleLatePhoto(phone, message, session.language);
-    if (handled) return;
   }
 
   // Explicit "talk to support" once no transactional flow consumed the message.

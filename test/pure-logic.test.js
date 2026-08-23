@@ -151,6 +151,17 @@ test('rating replies route to feedback', () => {
   assert.strictEqual(detectIntent('4', S()), 'feedback_rating');
 });
 
+test('the Language menu button opens the picker, not the main menu', () => {
+  // btn_language looks like a button id, so the generic button handling used
+  // to skip it and fall through to 'fallback' -> main menu, i.e. the button
+  // restarted the conversation instead of offering the three languages.
+  assert.strictEqual(detectIntent('btn_language', S()), 'change_language');
+});
+
+test('an image mid-flow continues the flow', () => {
+  assert.strictEqual(detectIntent('__IMAGE__', { phone: null, currentFlow: 'repair' }), '__continue_flow__');
+});
+
 // ── owner routing ─────────────────────────────────────────────
 test('branchSlugFromStoreHint understands name, button id and bare slug', () => {
   assert.strictEqual(branchSlugFromStoreHint('Sursagar (Opp. Pratap Talkies)'), 'sursagar');

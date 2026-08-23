@@ -106,6 +106,12 @@ function detectIntent(text, session) {
   // whenever the customer asks to switch).
   if (/^lang_(english|hindi|gujarati)$/.test(lower)) return 'language_choice';
 
+  // The 🌐 Language menu button. Must be matched HERE, before the generic
+  // button-id handling below: 'btn_language' looks like a button id, so the
+  // loop skips keyword matching for it and it fell through to 'fallback',
+  // which showed the main menu instead of the language options.
+  if (lower === 'btn_language') return 'change_language';
+
   // "Change my language" — EXACT match, because the bare word "language" could
   // otherwise appear inside an ordinary sentence.
   const CHANGE_LANG_EXACT = new Set([

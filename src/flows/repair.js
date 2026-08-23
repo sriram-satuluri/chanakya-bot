@@ -310,19 +310,20 @@ async function sendProblemMenu(phone, lang, bagType) {
  * @param {'ok'|'failed'} photoStatus  'ok' shows the ✅ line; 'failed' skips it so
  *   we don't contradict the "photo could not be saved" warning shown right before.
  */
-async function sendStoreMenu(phone, lang, photoStatus = 'ok') {
+/**
+ * Store picker — the last question before the ticket is created.
+ *
+ * Deliberately says nothing about a photo: the photo is now requested AFTER
+ * the ticket exists, so the old "Photo received! ✅" wording that used to lead
+ * this message was claiming something that hadn't happened yet.
+ */
+async function sendStoreMenu(phone, lang) {
   const stores = STORES[lang] || STORES.english;
-  let prompt;
-  if (photoStatus === 'failed') {
-    // Ask about store without claiming we received the photo (we didn't)
-    prompt = {
-      english:  `Which store will you bring the bag to?\n\n📍 *Alkapuri* — Race Course Road\n📍 *Sursagar* — Opp. Pratap Talkies`,
-      hindi:    `आप बैग किस स्टोर पर लाएंगे?\n\n📍 *Alkapuri* — Race Course Road\n📍 *Sursagar* — Pratap Talkies के सामने`,
-      gujarati: `આપ બેગ કયા સ્ટોર પર લઈ આવશો?\n\n📍 *Alkapuri* — Race Course Road\n📍 *Sursagar* — Pratap Talkies સામે`,
-    }[lang] || `Which store will you bring the bag to?`;
-  } else {
-    prompt = M.get('photo_received', lang);
-  }
+  const prompt = {
+    english:  `Almost done! Which store will you bring the bag to?\n\n📍 *Alkapuri* — Race Course Road\n📍 *Sursagar* — Opp. Pratap Talkies`,
+    hindi:    `लगभग हो गया! आप बैग किस स्टोर पर लाएंगे?\n\n📍 *Alkapuri* — Race Course Road\n📍 *Sursagar* — Pratap Talkies के सामने`,
+    gujarati: `લગભગ થઈ ગયું! આપ બેગ કયા સ્ટોર પર લઈ આવશો?\n\n📍 *Alkapuri* — Race Course Road\n📍 *Sursagar* — Pratap Talkies સામે`,
+  }[lang] || `Almost done! Which store will you bring the bag to?`;
   return sendButtonMessage(phone, prompt, stores.map(s => ({ id: s.id, title: s.label.substring(0, 20) })));
 }
 
