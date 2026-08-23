@@ -153,54 +153,14 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
     case 'ask_problem': {
       const problem = resolveProblem(text, lang);
       if (!problem) return sendProblemMenu(phone, lang, data.bagType);
-      updateSession(phone, { flowStep: 'ask_photo', collectedData: { ...data, problem } });
-      return sendTextMessage(phone, M.get('ask_photo', lang));
+      // Store comes BEFORE the photo now: those four answers are everything we
+      // need to create the ticket, so we bank them rather than holding them
+      // hostage to an optional photo the customer may not be able to take yet.
+      updateSession(phone, { flowStep: 'ask_store', collectedData: { ...data, problem } });
+      return sendStoreMenu(phone, lang);
     }
 
-    // ── Step 4: Photo ─────────────────────────────────────────
-    case 'ask_photo': {
-      const mediaId = getInboundImageMediaId(rawMessage);
-      if (!mediaId) {
-        const nudge = {
-          english:
-            `Please send a *photo* of your bag (camera icon or 📎). Use JPG/PNG/WebP — WhatsApp sends some photos as documents; either way works.`,
-          hindi:
-            `कृपया अपने बैग की *फोटो* भेजें (📎 या कैमरा)। JPG/PNG.`,
-          gujarati:
-            `કૃપા કરીને બેગની *ફોટો* મોકલો (📎 અથવા કૅમેરા). JPG/PNG.`,
-        };
-        return sendTextMessage(phone, nudge[lang] || nudge.english);
-      }
-
-      let beforePhotoUrl = '';
-      try {
-        const imgBuffer = await downloadMedia(mediaId);
-        // Do NOT put the customer's phone in the public_id — Cloudinary URLs are
-        // unauthenticated and public, and this URL travels into owner alerts and
-        // the sheet, so the phone would leak to anyone who sees it. Use a random
-        // token instead; the ticket row still links the photo to the customer.
-        const filename = `before_${crypto.randomBytes(8).toString('hex')}_${Date.now()}`;
-        beforePhotoUrl = await uploadBuffer(imgBuffer, 'chanakya-repairs/before', filename);
-      } catch (err) {
-        console.error('[PHOTO] Download/upload failed:', err.message || err);
-      }
-
-      updateSession(phone, { flowStep: 'ask_store', collectedData: { ...data, beforePhotoUrl } });
-
-      if (!beforePhotoUrl) {
-        const warn =
-          lang === 'hindi'
-            ? 'फोटो सेव नहीं हो पाई। टिकट फिर भी बना सकते हैं — स्टोर पर बैग लाते समय दोबारा दिखा दीजिए।'
-            : lang === 'gujarati'
-              ? 'ફોટો સેવ થઈ શકી નહીં. ટિકિટ તો બનાવી શકાય છે — બેગ સ્ટોર પર લાવો ત્યારે ફરી બતાવજો.'
-              : 'We could not store the photo — you can continue with the ticket. Please re-show it to us when you drop the bag off in store.';
-        await sendTextMessage(phone, warn).catch(() => {});
-      }
-
-      return sendStoreMenu(phone, lang, beforePhotoUrl ? 'ok' : 'failed');
-    }
-
-    // ── Step 5: Store selection ───────────────────────────────
+    // ── Step 4 (final): Store selection → create the ticket ───
     case 'ask_store': {
       const store = resolveStore(text);
       if (!store) return sendStoreMenu(phone, lang);
@@ -220,7 +180,13 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
         return sendTextMessage(phone, throttleMsg[lang] || throttleMsg.english);
       }
 
-      // All data collected — create ticket!
+      // All four answers collected — create the ticket NOW.
+      // The photo is deliberately not required here: those four facts are
+      // everything the shop needs, and holding them in an in-memory session
+      // until an optional photo arrives meant a redeploy (or a customer whose
+      // bag is at home) silently destroyed the whole booking. The photo is
+      // requested straight after and can arrive at any time later — see
+      // findRecentTicketAwaitingPhoto / the late-photo handler in the webhook.
       const storeName = STORE_NAMES[store];
       let ticketId;
       try {
@@ -232,7 +198,7 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
           bagType:        data.bagType,
           problem:        data.problem,
           store:          storeName,
-          beforePhotoUrl: data.beforePhotoUrl || '',
+          beforePhotoUrl: '',   // arrives later
           language:       lang,
         });
         // Only count a ticket toward the throttle once it actually persisted —
@@ -249,7 +215,7 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
           `👜 *Bag:* ${data.bagType}\n` +
           `🔧 *Issue:* ${data.problem}\n` +
           `🏪 *Store:* ${storeName}\n` +
-          `📸 *Photo:* ${data.beforePhotoUrl || '—'}\n` +
+          `📸 *Photo:* awaiting — customer asked to send one\n` +
           `🌐 *Language:* ${lang}`;
         // Notify general owners + any branch-specific owner (Nilesh for Sursagar, etc.)
         const branchSlugForAlerts = branchSlugFromRepairStoreId(store);

@@ -1,9 +1,82 @@
-// In-memory session store. Each phone number has a session object.
-// Sessions expire after 2 hours of inactivity.
+/**
+ * Session store — in memory, backed by disk.
+ *
+ * Each phone number has a session object holding the language, the active
+ * flow, and whatever the customer has answered so far. Sessions expire after
+ * 2 hours of inactivity.
+ *
+ * WHY IT PERSISTS: this used to be a bare Map. Every restart — and on a host
+ * with auto-deploy that means every push — silently destroyed every
+ * conversation in flight. Someone three questions into a booking lost the lot
+ * and got no explanation, they just found the bot had forgotten them. Writing
+ * the map to disk (debounced, same pattern as utils/dedupStore.js) makes a
+ * redeploy invisible to anyone mid-flow.
+ *
+ * Expired sessions are dropped on load, so a long outage doesn't resurrect
+ * stale half-finished flows.
+ */
 
-const sessions = new Map();
+const fs = require('fs');
+const path = require('path');
+
 const SESSION_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours
 const REMINDER_TIMEOUT_MS = 30 * 60 * 1000;     // 30 minutes
+const FLUSH_DEBOUNCE_MS = 1000;
+
+function resolvePath() {
+  const explicit = process.env.SESSION_CACHE_PATH?.trim();
+  if (explicit) return explicit;
+  return path.join(process.cwd(), 'data', 'sessions.json');
+}
+
+/** @type {Map<string, object>} */
+const sessions = loadSessions();
+let flushTimer = null;
+
+function loadSessions() {
+  const map = new Map();
+  try {
+    const raw = JSON.parse(fs.readFileSync(resolvePath(), 'utf8'));
+    const cutoff = Date.now() - SESSION_TIMEOUT_MS;
+    let restored = 0, dropped = 0;
+    for (const [phone, s] of Object.entries(raw || {})) {
+      // Drop anything already past its idle timeout rather than reviving it.
+      if (!s || (s.lastActivity && s.lastActivity < cutoff)) { dropped++; continue; }
+      map.set(phone, s);
+      restored++;
+    }
+    if (restored || dropped) {
+      console.log(`[SESSIONS] Restored ${restored} live session(s) from disk (${dropped} expired, discarded).`);
+    }
+  } catch {
+    // No file / unreadable — start empty. Not an error on a fresh install.
+  }
+  return map;
+}
+
+function flushNow() {
+  try {
+    const fp = resolvePath();
+    const dir = path.dirname(fp);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(fp, JSON.stringify(Object.fromEntries(sessions)), 'utf8');
+  } catch (e) {
+    // Non-fatal: sessions keep working in memory, they just won't survive a
+    // restart until the disk recovers.
+    console.warn('[SESSIONS] persist failed (in-memory sessions still active):', e.message);
+  }
+}
+
+function scheduleFlush() {
+  if (flushTimer) return;
+  flushTimer = setTimeout(() => { flushTimer = null; flushNow(); }, FLUSH_DEBOUNCE_MS);
+  flushTimer.unref?.();
+}
+
+// Best-effort save on shutdown so an intentional redeploy loses nothing at all.
+for (const sig of ['SIGTERM', 'SIGINT']) {
+  process.on(sig, () => { try { flushNow(); } catch { /* shutting down anyway */ } });
+}
 
 function getSession(phone) {
   if (!sessions.has(phone)) {
@@ -29,6 +102,7 @@ function updateSession(phone, updates) {
   const session = getSession(phone);
   Object.assign(session, updates);
   sessions.set(phone, session);
+  scheduleFlush();
 }
 
 function clearSession(phone) {
@@ -36,6 +110,7 @@ function clearSession(phone) {
   const newSession = createEmptySession(phone);
   if (lang) newSession.language = lang;
   sessions.set(phone, newSession);
+  scheduleFlush();
 }
 
 function createEmptySession(phone) {
@@ -60,6 +135,7 @@ setInterval(() => {
       sessions.delete(phone);
     }
   }
+  scheduleFlush();
 }, 60 * 60 * 1000).unref();
 
 // Check for 30-min reminder every 5 minutes
@@ -85,4 +161,8 @@ setInterval(() => {
   }
 }, 5 * 60 * 1000).unref();
 
-module.exports = { getSession, updateSession, clearSession };
+module.exports = {
+  getSession, updateSession, clearSession,
+  /** Force the debounced write to disk immediately (shutdown, tests). */
+  _flushNow: flushNow,
+};

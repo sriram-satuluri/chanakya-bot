@@ -65,6 +65,7 @@ const { pollStatusChanges } = require('./jobs/statusPoller');
 const { runBroadcastQueue } = require('./jobs/broadcastRunner');
 const { sendPickupReminders } = require('./jobs/pickupReminder');
 const { sendFeedbackRequests } = require('./jobs/feedbackRequest');
+const { runHealthCheck } = require('./jobs/healthCheck');
 // NB: jobs/reassurancePing.js is retired — superseded by the nudge inside
 // jobs/statusPoller.js. Intentionally no longer imported or scheduled.
 
@@ -267,6 +268,14 @@ cron.schedule('0 9 * * *', runOnceAtATime('pickupReminder', sendPickupReminders)
 cron.schedule(
   cronOrDefault(process.env.FEEDBACK_CRON, '15 * * * *', 'FEEDBACK_CRON'),
   runOnceAtATime('feedbackRequest', sendFeedbackRequests),
+);
+
+// Health check: probes Meta + Sheets and WhatsApps the owners if either stays
+// broken. The bot fails silently otherwise — it stays up and answers /health
+// while being unable to send a single message.
+cron.schedule(
+  cronOrDefault(process.env.HEALTH_CHECK_CRON, '*/30 * * * *', 'HEALTH_CHECK_CRON'),
+  runOnceAtATime('healthCheck', runHealthCheck),
 );
 
 // NB: the daily "reassurancePing" job was retired — its "still working on it"

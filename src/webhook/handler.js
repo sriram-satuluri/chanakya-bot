@@ -45,6 +45,7 @@ const {
   handleRepairUpdatesAnswer, handleRepairUpdatesCommand,
 } = require('../flows/repairUpdates');
 const { handleRatingReply } = require('../flows/feedback');
+const { handleLatePhoto } = require('../flows/latePhoto');
 
 // Message de-duplication lives in utils/dedupStore.js — it is disk-backed so
 // that a restart during Meta's retry window cannot re-process a message and
@@ -197,6 +198,11 @@ async function processMessage(message, contact) {
     intent,
     customerMessage: text,
     sessionId: `sess_${phone}`,
+    // Where in a flow this message landed — powers the drop-off report.
+    // Captured BEFORE routing, so it records the step the customer was ON
+    // when they sent this, which is what "where did they give up" means.
+    flowName: session.currentFlow || '',
+    flowStep: session.flowStep || '',
   }).catch(() => {}); // Don't block on analytics failure
 
   // Route to correct flow
@@ -335,6 +341,16 @@ async function routeMessage({ phone, text, msgType, message, session, intent }) 
         // than dropping them into an unrelated flow.
         return sendLanguagePicker(phone, session.language);
     }
+  }
+
+  // Late-arriving before-photo. Reached only when no flow owns the message, so
+  // an image sent mid-flow still belongs to that flow. The photo is requested
+  // after the ticket is created and may turn up minutes or days later — from
+  // the bus, or once they're home with the bag — so we file it against their
+  // most recent ticket that has no photo yet rather than ignoring it.
+  if (text === '__IMAGE__') {
+    const handled = await handleLatePhoto(phone, message, session.language);
+    if (handled) return;
   }
 
   // Explicit "talk to support" once no transactional flow consumed the message.

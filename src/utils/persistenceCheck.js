@@ -39,6 +39,12 @@ function persistentPaths() {
       file: process.env.DEDUP_CACHE_PATH?.trim()
         || path.join(process.cwd(), 'data', 'processed_messages.json'),
     },
+    {
+      label: 'conversation sessions',
+      why: 'keeps in-progress bookings alive across a redeploy instead of silently losing them',
+      file: process.env.SESSION_CACHE_PATH?.trim()
+        || path.join(process.cwd(), 'data', 'sessions.json'),
+    },
   ];
 }
 

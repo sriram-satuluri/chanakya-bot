@@ -173,7 +173,57 @@ async function createRepairTicket(data) {
     '',                                                         // T stop_reason
     '0',                                                        // U consecutive_failure_count
   ];
-  await appendRow(TABS.TICKETS, row);
+  // Returns the sheet row so the caller can attach a photo later without a
+  // full-sheet lookup (the photo now arrives AFTER the ticket is created).
+  return appendRow(TABS.TICKETS, row);
+}
+
+/**
+ * Attach a before-photo to an existing ticket row.
+ *
+ * The photo is collected after ticket creation, so this is how it lands. Uses
+ * the same cell formatting as creation (inline =IMAGE preview unless disabled).
+ */
+async function attachBeforePhoto(rowIndex, url) {
+  const cell = beforePhotoSheetCell(url);
+  if (!cell || !rowIndex) return false;
+  await sheets().spreadsheets.values.update({
+    spreadsheetId: SHEET_ID(),
+    range: `${TABS.TICKETS}!${ticketColLetter(TICKET_COL.BEFORE_PHOTO)}${rowIndex}`,
+    valueInputOption: 'USER_ENTERED',
+    requestBody: { values: [[cell]] },
+  });
+  invalidateTicketCache();
+  return true;
+}
+
+/**
+ * The ticket a late-arriving photo most likely belongs to: this phone's most
+ * recent non-terminal ticket that still has no before-photo.
+ *
+ * Lets a customer send the photo minutes or days after booking — from the
+ * bus, or once they're home with the bag — and still have it filed correctly,
+ * instead of it being an orphaned image the bot doesn't understand.
+ */
+async function findRecentTicketAwaitingPhoto(phone) {
+  const want = String(phone ?? '').replace(/[^0-9]/g, '');
+  if (!want) return null;
+  const rows = await readTicketRows();
+  for (let i = rows.length - 1; i >= 1; i--) {   // newest first
+    const r = rows[i];
+    const ticketId = String(r[TICKET_COL.TICKET_ID] ?? '').trim();
+    if (!ticketId || !/^CHA-/i.test(ticketId)) continue;
+    if (String(r[TICKET_COL.PHONE] ?? '').replace(/[^0-9]/g, '') !== want) continue;
+    if (extractHttpsUrlFromCell(r[TICKET_COL.BEFORE_PHOTO])) continue; // already has one
+    if (terminalStopReason(canonicalStatus(r[TICKET_COL.STATUS]))) continue; // done/cancelled
+    return {
+      ticketId,
+      rowIndex: i + 1,
+      store: String(r[TICKET_COL.STORE] ?? '').trim(),
+      language: String(r[TICKET_COL.LANGUAGE] ?? '').trim().toLowerCase() || 'english',
+    };
+  }
+  return null;
 }
 
 async function findTicket(ticketId) {
@@ -338,6 +388,7 @@ async function setTicketReassuranceTime(rowIndex, at = new Date()) {
     valueInputOption: 'USER_ENTERED',
     requestBody: { values: [[ts]] },
   });
+  invalidateTicketCache();
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -406,6 +457,7 @@ async function recordProactiveUpdate(rowIndex, patch = {}) {
     spreadsheetId: SHEET_ID(),
     requestBody: { valueInputOption: 'USER_ENTERED', data },
   });
+  invalidateTicketCache();
 }
 
 /**
@@ -520,6 +572,7 @@ async function recordFeedbackState(rowIndex, patch = {}) {
     spreadsheetId: SHEET_ID(),
     requestBody: { valueInputOption: 'USER_ENTERED', data },
   });
+  invalidateTicketCache();
 }
 
 /**
@@ -644,6 +697,12 @@ async function logAnalytics(data) {
     safeUserText((data.botResponseSummary || '').substring(0, 300)),
     safeUserText(data.sessionId || '', 120),
     data.escalated ? 'TRUE' : 'FALSE',
+    // I, J — funnel position. Recorded so drop-off can be MEASURED rather than
+    // guessed at: scripts/funnel-report.js counts how many distinct customers
+    // ever reach each step. See the WhatsApp Flow proposal, which is currently
+    // deferred precisely because we had no data on where people give up.
+    safeUserText(data.flowName || '', 40),
+    safeUserText(data.flowStep || '', 40),
   ];
   await appendRow(TABS.ANALYTICS, row);
 }
@@ -810,14 +869,23 @@ async function markBroadcastSent(rowIndex) {
 // GENERIC HELPERS
 // ══════════════════════════════════════════════════════════════
 
+/**
+ * @returns {Promise<number|null>} the 1-indexed sheet row the data landed on,
+ *   parsed from the API's updatedRange (e.g. "repair_tickets!A13:U13" -> 13).
+ *   Saves a follow-up full-sheet read when the caller needs to update the row
+ *   it just created. null if the response shape is unexpected.
+ */
 async function appendRow(tabName, rowData) {
-  await sheets().spreadsheets.values.append({
+  const res = await sheets().spreadsheets.values.append({
     spreadsheetId: SHEET_ID(),
     range: `${tabName}!A1`,
     valueInputOption: 'USER_ENTERED',
     insertDataOption: 'INSERT_ROWS',
     requestBody: { values: [rowData] },
   });
+  if (tabName === TABS.TICKETS) invalidateTicketCache();
+  const m = /![A-Z]+(\d+)/.exec(res?.data?.updates?.updatedRange || '');
+  return m ? Number(m[1]) : null;
 }
 
 // Generic tab read cap. 1000 was too low: once opt_in_contacts crossed it,
@@ -832,13 +900,38 @@ async function readAllRows(tabName) {
 }
 
 /** Loads repair sheet with formulas preserved (=IMAGE…) so thumbnails stay readable programmatically via extractHttpsUrlFromCell */
-async function readTicketRows() {
+/**
+ * Short-lived cache for the repair sheet.
+ *
+ * readTicketRows() pulls the WHOLE tab and has ~9 call sites (tracking, the
+ * status poller, feedback, handoff routing, opt-in toggling). A busy minute
+ * meant several full-sheet reads, and the cost grows linearly with ticket
+ * count. A few seconds of staleness is harmless here — staff edits do not
+ * need sub-minute propagation — but a stale read straight after one of OUR
+ * writes would be a correctness bug, so every ticket write invalidates.
+ */
+const TICKET_CACHE_TTL_MS = envInt('SHEETS_TICKET_CACHE_SECONDS', 30, { min: 0 }) * 1000;
+let _ticketCache = null;
+let _ticketCacheAt = 0;
+
+function invalidateTicketCache() {
+  _ticketCache = null;
+  _ticketCacheAt = 0;
+}
+
+async function readTicketRows({ fresh = false } = {}) {
+  const now = Date.now();
+  if (!fresh && _ticketCache && TICKET_CACHE_TTL_MS > 0 && (now - _ticketCacheAt) < TICKET_CACHE_TTL_MS) {
+    return _ticketCache;
+  }
   const res = await sheets().spreadsheets.values.get({
     spreadsheetId: SHEET_ID(),
     range: `${TABS.TICKETS}!A1:Z${TICKETS_ROW_CAP}`,
     valueRenderOption: 'FORMULA',
   });
-  return res.data.values || [];
+  _ticketCache = res.data.values || [];
+  _ticketCacheAt = now;
+  return _ticketCache;
 }
 
 /**
@@ -907,6 +1000,7 @@ module.exports = {
   getTicketsForProactiveUpdate, recordProactiveUpdate,
   getOpenTicketsForPhone, setRepairUpdatesOptIn, hasOpenOptedInTicket,
   getTicketsForFeedback, recordFeedbackState, findTicketAwaitingRating,
+  attachBeforePhoto, findRecentTicketAwaitingPhoto, invalidateTicketCache,
   TICKET_COL,
   getPendingBroadcasts, markBroadcastSent, setBroadcastStatus,
   applyRepairTicketStatusDropdown,

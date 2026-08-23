@@ -466,6 +466,33 @@ const messages = {
     gujarati:`✅ રિપેર અપડેટ બંધ કરી દીધા. *track* લખીને ગમે ત્યારે જોઈ શકો છો, અને *અપડેટ ચાલુ* મોકલીને ફરી ચાલુ કરી શકો છો.`,
   },
 
+  // ── Photo, requested AFTER the ticket exists ──
+  /** Asked once the ticket is safely created, so it is genuinely optional and
+   *  nobody is ever blocked from booking by a bag they don't have to hand. */
+  photo_request_after_ticket: {
+    english: `📸 One last thing — if your bag is with you, send a *photo* of the damage and we'll add it to your ticket.\n\nNo rush: send it any time before you drop the bag off, or just show us at the counter.`,
+    hindi:   `📸 आख़िरी बात — अगर बैग आपके पास है तो नुकसान की *फोटो* भेज दें, हम टिकट में जोड़ देंगे।\n\nजल्दी नहीं: ड्रॉप-ऑफ से पहले कभी भी भेज सकते हैं, या काउंटर पर दिखा दीजिए।`,
+    gujarati:`📸 છેલ્લી વાત — જો બેગ તમારી પાસે હોય તો નુકસાનની *ફોટો* મોકલો, અમે ટિકિટમાં ઉમેરી દઈશું.\n\nઉતાવળ નથી: ડ્રોપ-ઓફ પહેલાં ગમે ત્યારે મોકલો, અથવા કાઉન્ટર પર બતાવજો.`,
+  },
+
+  photo_attached: {
+    english: `✅ Photo added to ticket *{{ticketId}}* — thank you!`,
+    hindi:   `✅ फोटो टिकट *{{ticketId}}* में जुड़ गई — धन्यवाद!`,
+    gujarati:`✅ ફોટો ટિકિટ *{{ticketId}}* માં ઉમેરાઈ — આભાર!`,
+  },
+
+  photo_attach_failed: {
+    english: `We received your photo but couldn't save it. No problem — please show it to us when you drop the bag off.`,
+    hindi:   `फोटो मिली, पर सेव नहीं हो पाई। कोई बात नहीं — बैग देते समय दिखा दीजिए।`,
+    gujarati:`ફોટો મળી, પણ સેવ થઈ શકી નહીં. વાંધો નહીં — બેગ આપતી વખતે બતાવજો.`,
+  },
+
+  photo_no_open_ticket: {
+    english: `Thanks for the photo! We couldn't find an open repair to attach it to — tap *🔧 Repair My Bag* to book one first.`,
+    hindi:   `फोटो के लिए धन्यवाद! जोड़ने के लिए कोई चालू रिपेयर नहीं मिली — पहले *🔧 बैग रिपेयर करें* पर टैप करें।`,
+    gujarati:`ફોટો બદલ આભાર! ઉમેરવા માટે કોઈ ચાલુ રિપેર મળી નહીં — પહેલા *🔧 બેગ રિપેર કરો* પર ટૅપ કરો.`,
+  },
+
   // ── Post-service feedback ──
   feedback_thanks: {
     english: `🙏 Thank you for the feedback — it genuinely helps us. We hope to see you again at Chanakya!`,

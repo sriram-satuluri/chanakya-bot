@@ -46,12 +46,25 @@ async function handleRepairUpdatesAnswer(phone, text, session) {
     } catch (e) {
       console.error(`[REPAIR-UPDATES] Failed to opt in ${_rd(phone)}:`, e.message);
     }
-    return sendTextMessage(phone, M.get('repair_updates_on_confirm', lang));
+    await sendTextMessage(phone, M.get('repair_updates_on_confirm', lang));
+    return askForPhoto(phone, lang);
   }
 
   // Explicit "no", or any other reply — leave opted_in FALSE (as created).
   console.log(`[REPAIR-UPDATES] ${_rd(phone)} declined updates for ${ticketId || '(none)'}`);
-  return null;
+  return askForPhoto(phone, lang);
+}
+
+/**
+ * Ask for the before-photo — the LAST thing in the booking, after the ticket
+ * already exists. Deliberately does NOT park the session: the photo is
+ * optional and may arrive days later, so it is picked up by the late-photo
+ * handler in webhook/handler.js instead of a flow step that could trap the
+ * customer or be lost on restart.
+ */
+async function askForPhoto(phone, lang) {
+  return sendTextMessage(phone, M.get('photo_request_after_ticket', lang))
+    .catch((e) => console.error('[REPAIR-UPDATES] Photo request failed:', e.message));
 }
 
 /**
