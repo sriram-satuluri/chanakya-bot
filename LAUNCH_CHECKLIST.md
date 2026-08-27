@@ -1,8 +1,13 @@
-# 🚀 Launch Checklist — Chanakya WhatsApp Bot
+# Launch Checklist — Chanakya WhatsApp Bot
 
-Code-side hardening is done (see "Already enforced by code" below). The items in
-**Before go-live** are operator actions — they involve accounts and secrets the
-code cannot set for itself.
+Code-side hardening is in place (see "Already enforced by code"). **Before
+go-live** items are operator actions — accounts and secrets the code cannot
+set for itself.
+
+Status-poller memory is **not** a local snapshot file. Ticket opt-in / last
+sent / failure counts live in `repair_tickets` columns Q–Y. The files that
+must survive a Railway redeploy are under `data/` (sessions, dedup,
+throttles, health counters).
 
 ## Before go-live (do these in order)
 
@@ -16,17 +21,51 @@ code cannot set for itself.
      `node scripts/apply-google-credentials.js <new-key.json>`.
    - Delete the zip, or re-zip without `.env`.
 
-2. **Set `META_APP_SECRET`** (currently empty in `.env`). Meta App → Settings →
-   Basic → App Secret. Without it, in production the bot rejects **all**
-   webhooks; in dev it accepts unsigned ones. Required for launch.
+2. **Set `META_APP_SECRET`**. Meta App → Settings → Basic → App Secret.
+   Without it, in production the bot rejects **all** webhooks. Required for launch.
 
 3. **Replace the temporary access token with a permanent System User token.**
    Temporary tokens expire in ~24 h — the #1 cause of a silently dead bot.
    Meta Business Suite → Business Settings → Users → System Users → Add →
-   assign the WhatsApp asset → generate token with `whatsapp_business_messaging`.
-   Verify with `npm run verify:meta`.
+   assign the WhatsApp asset → generate token with `whatsapp_business_messaging`
+   and `whatsapp_business_management`. Verify with `npm run verify:meta`.
 
-4. **Set production env on the host** (Railway → Variables):
+4. **Production WhatsApp number** — not the sandbox `+1 555-…` test line.
+   Display name approved, business verified, payment method on the WABA.
+   If Sold-To country is India, use INR billing (migration deadline 31 Dec 2026).
+   Confirm with Vedant/Vatsal whether the live number already runs WhatsApp
+   Business app: registering it on Cloud API *without coexistence* logs the
+   app out of the phone.
+
+5. **Submit and wait for Utility templates (24–48 h).** The bot will **not**
+   send status updates or feedback, and will **not** ask "Yes, update me" after
+   booking, until these env vars are set to *approved* names:
+
+   ### repair_status_update_en / _hi / _gu (category: Utility)
+
+   Language codes `en`, `hi`, `gu`. Four body variables.
+
+   English body (submit Hindi/Gujarati as real translations, not English tagged `hi`):
+
+   `Hi {{1}}, your repair {{2}} is now: {{3}}. Collect or enquire at {{4}}.`
+
+   Then set `REPAIR_UPDATE_TEMPLATE_EN/HI/GU`.
+
+   ### repair_feedback_en / _hi / _gu (category: Utility)
+
+   Two body variables. Three quick-reply buttons whose payloads **must** be
+   `rate_1`, `rate_3`, `rate_5` (this is what the bot matches).
+
+   English body: `Hi {{1}}, how was the repair on ticket {{2}}? Tap a rating.`
+
+   Button titles e.g. `1 – Poor` / `3 – OK` / `5 – Excellent`.
+
+   Then set `FEEDBACK_TEMPLATE_EN/HI/GU`.
+
+   Marketing/`broadcast_queue` templates are separate — do not queue a campaign
+   until those are approved.
+
+6. **Set production env on the host** (Railway → Variables):
    - `NODE_ENV=production` — enforces HMAC, fail-fast config, `/ready` protection.
    - `READINESS_SECRET=<long random>` — protects `GET /ready`.
    - `WEBHOOK_VERIFY_TOKEN=<long random>` — generate:
@@ -34,110 +73,97 @@ code cannot set for itself.
      (must match the value entered in Meta's webhook config).
    - `TRUST_PROXY=1` (default in production) — Railway sits one proxy hop in front.
    - `SKIP_WEBHOOK_SIGNATURE` — must NOT be set (it is ignored in production anyway).
+   - `META_PHONE_NUMBER_ID` — the **production** number ID, not the sandbox one.
+   - `OWNER_PHONE_VEDANT` / `OWNER_PHONE_VATSAL` as `91…` digits.
+   - Cache paths on the volume (next step).
 
-5. **Persistent snapshot storage.** `data/repair_status_snapshot.json` is the
-   status-poller's memory. On Railway the filesystem is ephemeral — attach a
-   volume and point `REPAIR_STATUS_CACHE_PATH` at it, otherwise every redeploy
-   re-baselines silently (no duplicate pings, but a status change during the
-   deploy window is missed).
+7. **Persistent volume.** Railway’s container disk is wiped on every deploy.
+   Mount a volume at `/data` and set:
+   - `SESSION_CACHE_PATH=/data/sessions.json`
+   - `DEDUP_CACHE_PATH=/data/processed_messages.json`
+   - `THROTTLE_CACHE_PATH=/data/throttles.json`
+   - `HEALTH_CACHE_PATH=/data/health_state.json`
 
-6. **WhatsApp Business profile:** display name approved, business verified,
-   and the `broadcast_queue` templates approved in Meta before queuing any campaign.
+   Run **one replica only**. Sessions and the ticket-ID mutex are in-process.
 
-7. **Smoke test on the live number** (one pass, ~5 minutes):
-   repair flow end-to-end (with photo) → track the ticket → corporate flow →
-   store locations → `terms` → `STOP` → confirm `opt_in_contacts` column D flips
-   to FALSE → `RESUME`.
+8. **Google Sheet.** Headers through column Y (`populate_sheet.js`). Cell `P1`
+   is the ticket counter — never reset a live P1 to 0. Run
+   `npm run sheet:status-dropdown`. Share the sheet Editor with the service
+   account (`spreadsheets` scope only). Train staff on `docs/STAFF-SHEET.md`.
+
+9. **Cloudinary** — confirm a real repair-photo upload. Tickets still create
+   if upload fails; the sheet preview will be empty.
+
+10. **Webhook URL** — Meta → WhatsApp → Configuration:
+    `https://YOUR_HOST/webhook` (Railway hostname is enough; custom DNS optional).
+    Subscribe to `messages`. Remove any ngrok URL.
+
+11. **Owner 24h window.** Vedant, Vatsal, and any `BRANCH_OWNER_*` must send
+    a message to the live number (and keep doing so) or free-form owner alerts
+    fail with Meta 131047.
+
+12. **Smoke test on the live number** (one pass, ~5 minutes) from a
+    *non-owner* phone:
+    language picker → menu (Repair / Track / Shop) → repair with photo →
+    track the ticket → corporate → store locations → `terms` → `STOP`
+    (opt_in_contacts column D = FALSE) → `RESUME`. Then staff-dropdown that
+    ticket to *Bag Received* and *Ready for Pickup* during 10:00–19:00 IST
+    and confirm the Utility template arrives (only if step 5 env is set).
+
+### Emergency stop
+If the bot ever starts misbehaving in production, set `OUTBOUND_KILL_SWITCH=1`
+and restart — inbound is still processed, but no outbound message goes out until
+you clear it.
 
 ## Already enforced by code
 
 - Webhook HMAC (`X-Hub-Signature-256`, timing-safe); `SKIP_WEBHOOK_SIGNATURE`
   ignored in production; unsigned webhooks rejected.
-- Production fail-fast: missing Meta credentials abort startup with exit 1.
-- Per-IP rate limiting keyed on `req.ip` via `trust proxy` (spoofed
-  `X-Forwarded-For` no longer bypasses it); JSON body capped at 100 KB.
+- Production fail-fast: missing Meta, Google Sheets, or Cloudinary credentials abort startup with exit 1.
+- Unapproved template names are **not** called: status/feedback jobs no-op
+  until `REPAIR_UPDATE_TEMPLATE_*` / `FEEDBACK_TEMPLATE_*` are set.
+- Per-IP rate limiting keyed on `req.ip` via `trust proxy`; JSON body capped at 100 KB.
 - Message dedup, session timeouts, per-phone corporate-lead throttle.
-- IDOR guard on ticket tracking (only the submitting phone or an owner can view).
+- Ticket tracking is a shared-ID lookup (anyone with the exact ticket ID can view status; the reply has no customer name or phone) with a 5/hour cross-phone throttle.
 - Sheets formula-injection defence (`safeUserText`) on all user-entered cells.
 - Outbound image/document URLs restricted to an HTTPS host allowlist.
 - `STOP` / `RESUME` opt-out honoured globally, even mid-flow; broadcasts only
   reach `opted_in = TRUE`.
 - Media downloads capped (16 MB) and time-limited; Cloudinary uploads retried
   with timeout; broadcast queue rows claimed before sending (no double-blast).
-- Phone numbers redacted to last-4 in all logs; control chars stripped
-  (log-injection defence).
-- Security headers on every response (`X-Content-Type-Options: nosniff`,
-  `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Cache-Control: no-store`);
-  `X-Powered-By` disabled. Terminal error handler returns bare status codes with
-  no stack trace (malformed JSON → 400, oversized body → 413).
-- `/ready` secret accepted via `X-Readiness-Secret` header (keeps it out of URLs
-  and proxy logs) as well as the query param.
-- Ticket-counter reads fail loudly instead of silently resetting to 0 — a
-  transient Sheets error can no longer mint a duplicate ticket ID.
-- Proactive jobs skip missing/invalid phone cells before calling the API, and a
-  closed 24-hour window is logged as an explicit, actionable warning (see above).
-- **Outbound circuit breaker**: per-minute + per-day caps on outbound messages
-  (`OUTBOUND_MAX_PER_MIN`/`OUTBOUND_MAX_PER_DAY`, generous defaults) plus a panic
-  kill switch (`OUTBOUND_KILL_SWITCH=1`) — a runaway loop, retry storm, or bad
-  sheet row can't rack up a Meta bill or trip spam detection.
-- **Broadcast recipient cap** (`BROADCAST_MAX_RECIPIENTS`, default 5000): a single
-  bad queue row can't message an unbounded audience.
-- Inbound messages get read receipts (blue ticks) so customers see responsiveness.
-- Repair-photo Cloudinary IDs use a random token (no customer phone in the public
-  image URL); corporate-lead logs carry no raw name/company (log-injection + PII).
-- Security headers include HSTS (`Strict-Transport-Security`).
-- `npm audit`: 0 known vulnerabilities (as of 2026-07-11; re-run monthly).
+- Phone numbers redacted to last-4 in all logs; control chars stripped.
+- Security headers on every response; `X-Powered-By` disabled.
+- `/ready` secret via `X-Readiness-Secret` header or query param.
+- Ticket-counter reads fail loudly instead of silently resetting to 0.
+- Outbound circuit breaker (`OUTBOUND_MAX_PER_MIN` / `OUTBOUND_MAX_PER_DAY`)
+  plus `OUTBOUND_KILL_SWITCH`.
+- Broadcast recipient cap (`BROADCAST_MAX_RECIPIENTS`, default 5000).
+- Inbound messages get read receipts (blue ticks).
+- Repair-photo Cloudinary IDs use a random token (no customer phone in the URL).
 
-### Emergency stop
-If the bot ever starts misbehaving in production, set `OUTBOUND_KILL_SWITCH=1`
-and restart — inbound is still processed, but no outbound message goes out until
-you clear it. This is your panic button while you investigate.
-
-## Proactive notifications & the 24-hour window (IMPORTANT)
+## Proactive notifications
 
 WhatsApp only lets you send **free-form** messages within 24 hours of the
-customer's last message to you. After that, any business-initiated message must
-be a **Meta-approved template**.
+customer's last message. After that, business-initiated messages must be
+**approved templates**. From **1 Oct 2026** Meta also bills in-window service
+messages at the Utility rate.
 
-**Default posture: smart (free-when-free).** The bot tracks when each customer
-last messaged it (`data/last_contact.json`). On a sheet status change:
+Status pushes and feedback **only send as Utility templates**, and only when
+the corresponding env vars are set. Quiet hours: 10:00–19:00 IST
+(`PROACTIVE_START_HOUR` / `PROACTIVE_END_HOUR`).
 
-- Customer messaged within the last ~24h → window OPEN → status push sent
-  free-form at **₹0**.
-- Window CLOSED → only **"Ready for Pickup"** is sent from our side:
-  - If `PICKUP_TEMPLATE_NAME` is set → sent as an approved **utility template**
-    (≈ ₹0.115 + GST) and it reliably delivers.
-  - If not set → attempted free-form; if Meta confirms the window is closed
-    (error 131047) the push is dropped with a clear log — never retried, never
-    silent.
-- All other statuses with a closed window are skipped — customers see them free
-  via Track whenever they want.
+Pickup reminders (`PICKUP_REMINDER_ENABLED`) stay off — they are still
+free-form and will fail outside the 24h window.
 
-Controls (`.env`): `STATUS_PUSH_MODE=smart|off|ready_only|all` (default smart),
-`PICKUP_TEMPLATE_NAME` (utility template, body vars {{1}}=ticket id,
-{{2}}=store, approved in en/hi/gu), `LAST_CONTACT_CACHE_PATH` (persist with a
-volume, like the status snapshot).
-
-Other proactive features stay opt-in: pickup reminders
-(`PICKUP_REMINDER_ENABLED=true`), reassurance pings (`REASSURANCE_ENABLED=true`).
-Owner alerts (new ticket / lead) are always on — business ops, 2–3 recipients.
-
-**To make closed-window pickup pushes deliver:** create the utility template in
-Meta → WhatsApp Manager → Message Templates (e.g. "Your repair {{1}} is ready
-for pickup at {{2}}. We hold bags free for 30 days."), get it approved in all
-three languages, then set `PICKUP_TEMPLATE_NAME` and restart. Everything else
-already works with zero templates and zero message cost.
+Owner alerts (new ticket / lead / handoff / health) are always attempted as
+free-form. They require the owner to have messaged the bot within 24h.
 
 ## Operational notes
 
-- `/health` — liveness (no deps). `/ready?secret=…` — checks Meta Graph credentials.
-- Cron: status poll every 15 min (`STATUS_POLL_CRON`), broadcasts hourly,
-  pickup reminders daily 09:00 server time, reassurance daily (`REASSURANCE_CRON`).
-  Server TZ on Railway is UTC — IST is UTC+5:30, so "9 AM" cron fires 2:30 PM IST;
-  adjust cron strings if that matters.
-- Invalid cron strings in env now log an error and fall back to defaults
-  (no more boot crash).
+- `/health` — liveness (no deps). `/ready` — checks Meta Graph credentials.
+- Cron: status poll every 15 min, broadcasts hourly, pickup reminder default
+  `30 4 * * *` (10:00 IST on UTC hosts), feedback hourly, health every 30 min.
+  Server TZ on Railway is UTC unless you set `TZ=Asia/Kolkata`.
 - Ticket counter lives in `repair_tickets!P1` — don't delete it.
-- The bot is single-process by design (in-memory sessions, ticket-ID mutex).
-  Do not scale to multiple instances without moving sessions + counter to a
-  shared store (Redis).
+- Single-process by design. Do not scale replicas without moving sessions
+  and the ticket counter to a shared store.

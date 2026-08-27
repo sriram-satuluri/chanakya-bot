@@ -34,15 +34,53 @@ function logConfigWarnings() {
     console.warn('[CONFIG] GOOGLE_SHEETS_ID is missing — ticketing & catalog write/read will fail.');
   }
 
+  try {
+    const { getGeneralOwnerPhones } = require('./utils/ownerPhones');
+    const owners = getGeneralOwnerPhones();
+    if (!owners.length) {
+      console.warn('[CONFIG] No OWNER_PHONE_* set — ticket/lead/handoff/health alerts will go nowhere.');
+    } else {
+      const redacted = owners.map((p) => (p.length > 4 ? '***' + p.slice(-4) : '***')).join(', ');
+      console.warn(
+        `[CONFIG] Owner alerts are free-form. ${owners.length} owner(s) (${redacted}) must message this WhatsApp number at least once every 24h or alerts fail with Meta 131047.`,
+      );
+    }
+  } catch { /* ownerPhones is best-effort at boot */ }
+
+  try {
+    const { missingTemplateEnv, repairUpdatesReady, feedbackTemplatesReady } = require('./utils/metaTemplates');
+    if (!repairUpdatesReady()) {
+      console.warn('[CONFIG] REPAIR_UPDATE_TEMPLATE_EN/HI/GU unset — status pushes and the post-booking opt-in question are off until Meta approves those Utility templates.');
+    }
+    if (!feedbackTemplatesReady()) {
+      console.warn('[CONFIG] FEEDBACK_TEMPLATE_EN/HI/GU unset — post-pickup ratings will not be requested until those templates are approved.');
+    }
+    const missing = missingTemplateEnv();
+    if (missing.length && process.env.NODE_ENV === 'production') {
+      console.warn('[CONFIG] Template env still empty:', missing.join(', '));
+    }
+  } catch { /* templates helper is best-effort at boot */ }
+
+  if (!process.env.TERMS_URL?.trim() && !process.env.TERMS_DOC_URL?.trim()) {
+    console.warn('[CONFIG] TERMS_URL and TERMS_DOC_URL are empty — customers get the summary text only, no link or PDF.');
+  }
+
   // In production a missing credential means the bot either can't talk to
-  // customers (token/phone id) or would drop every inbound webhook (app secret,
-  // verify token). Booting anyway just hides the outage — refuse to start.
+  // customers (token/phone id), would drop every inbound webhook (app secret,
+  // verify token), can't create/look up tickets (Sheets), or can't store
+  // repair photos (Cloudinary). Booting anyway just hides the outage — refuse to start.
   if (process.env.NODE_ENV === 'production') {
     const missing = [];
     if (!token) missing.push('META_ACCESS_TOKEN');
     if (!phoneId) missing.push('META_PHONE_NUMBER_ID');
     if (!verify) missing.push('WEBHOOK_VERIFY_TOKEN');
     if (!secret) missing.push('META_APP_SECRET');
+    if (!process.env.GOOGLE_SHEETS_ID?.trim()) missing.push('GOOGLE_SHEETS_ID');
+    if (!process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL?.trim()) missing.push('GOOGLE_SERVICE_ACCOUNT_EMAIL');
+    if (!process.env.GOOGLE_PRIVATE_KEY?.trim()) missing.push('GOOGLE_PRIVATE_KEY');
+    if (!process.env.CLOUDINARY_CLOUD_NAME?.trim()) missing.push('CLOUDINARY_CLOUD_NAME');
+    if (!process.env.CLOUDINARY_API_KEY?.trim()) missing.push('CLOUDINARY_API_KEY');
+    if (!process.env.CLOUDINARY_API_SECRET?.trim()) missing.push('CLOUDINARY_API_SECRET');
     if (missing.length) {
       console.error(`[CONFIG] FATAL: NODE_ENV=production but required env missing: ${missing.join(', ')}. Refusing to start.`);
       process.exit(1);
@@ -66,8 +104,6 @@ const { runBroadcastQueue } = require('./jobs/broadcastRunner');
 const { sendPickupReminders } = require('./jobs/pickupReminder');
 const { sendFeedbackRequests } = require('./jobs/feedbackRequest');
 const { runHealthCheck } = require('./jobs/healthCheck');
-// NB: jobs/reassurancePing.js is retired — superseded by the nudge inside
-// jobs/statusPoller.js. Intentionally no longer imported or scheduled.
 
 const app = express();
 
@@ -257,10 +293,14 @@ cron.schedule(
 // Every hour: check broadcast queue
 cron.schedule('0 * * * *', runOnceAtATime('broadcastQueue', runBroadcastQueue));
 
-// Every day at 9am: send pickup reminders (bags uncollected 7+ days).
-// Kept separate from the status updates above — it solves a different problem
-// (bag ready but not collected for a week), not a status change.
-cron.schedule('0 9 * * *', runOnceAtATime('pickupReminder', sendPickupReminders));
+// Pickup reminders (bags uncollected 7+ days). Off until PICKUP_REMINDER_ENABLED=true.
+// Default 04:30 UTC = 10:00 IST on a UTC host (Railway). If you set TZ=Asia/Kolkata
+// on the service, override with PICKUP_REMINDER_CRON=0 10 * * *. The job also
+// respects the IST quiet-hours window.
+cron.schedule(
+  cronOrDefault(process.env.PICKUP_REMINDER_CRON, '30 4 * * *', 'PICKUP_REMINDER_CRON'),
+  runOnceAtATime('pickupReminder', sendPickupReminders),
+);
 
 // Post-pickup feedback requests. Runs hourly; the job itself enforces the
 // FEEDBACK_DELAY_HOURS wait and the same quiet-hours window as the poller,
@@ -277,11 +317,6 @@ cron.schedule(
   cronOrDefault(process.env.HEALTH_CHECK_CRON, '*/30 * * * *', 'HEALTH_CHECK_CRON'),
   runOnceAtATime('healthCheck', runHealthCheck),
 );
-
-// NB: the daily "reassurancePing" job was retired — its "still working on it"
-// message is now the NUDGE_AFTER_DAYS nudge inside the status poller, which is
-// opt-in aware and template-based. src/jobs/reassurancePing.js is left in the
-// tree unused for reference; delete it once you're happy with the new flow.
 
 // ── Start server ──────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;

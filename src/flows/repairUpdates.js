@@ -1,6 +1,8 @@
 const { sendButtonMessage, sendTextMessage } = require('../services/whatsapp');
 const { setRepairUpdatesOptIn, getOpenTicketsForPhone } = require('../services/sheets');
 const { updateSession, clearSession } = require('../utils/sessionStore');
+const { repairUpdatesReady } = require('../utils/metaTemplates');
+const { handleEscalation } = require('./escalate');
 const M = require('../messages/index');
 
 const _rd = (p) => (p && p.length > 4) ? '***' + p.slice(-4) : '***';
@@ -17,6 +19,11 @@ const OPTIN_BUTTONS = {
  * Parks the session on 'repair_updates' so the reply routes back here.
  */
 async function askRepairUpdatesOptIn(phone, lang, ticketId) {
+  // Don't promise WhatsApp updates we cannot send (unapproved templates would
+  // fail 3× and silently unsubscribe them).
+  if (!repairUpdatesReady()) {
+    return askForPhoto(phone, lang);
+  }
   updateSession(phone, {
     currentFlow: 'repair_updates',
     flowStep: 'ask_optin',
@@ -32,10 +39,23 @@ async function askRepairUpdatesOptIn(phone, lang, ticketId) {
  * question and types something else is never trapped in this flow — they just
  * don't get opted in (the privacy-safe default).
  */
-async function handleRepairUpdatesAnswer(phone, text, session) {
+async function handleRepairUpdatesAnswer(phone, text, session, intent = null) {
   const lang = session.language || 'english';
   const ticketId = session.collectedData?.ticketId || null;
   const choice = String(text || '').toLowerCase();
+
+  // "Talk to a person" is not an answer to the opt-in question. Before this
+  // guard it fell into the treat-anything-as-"no" branch below: the customer
+  // asked for a human, got a photo request, and had a consent decision
+  // recorded for them by a message that was never a reply to the question.
+  //
+  // Deliberately records NOTHING about the opt-in — the ticket keeps its
+  // as-created FALSE and the question simply goes unanswered, which is honest.
+  // handleEscalation pauses the session, so the customer isn't left mid-flow.
+  if (intent === 'escalate') {
+    console.log(`[REPAIR-UPDATES] ${_rd(phone)} asked for a human at the opt-in question — handing off, no preference recorded.`);
+    return handleEscalation(phone, lang, text);
+  }
 
   clearSession(phone);
 

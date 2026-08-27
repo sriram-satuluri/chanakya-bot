@@ -128,15 +128,6 @@ function getRecipientsForStore(storeHint) {
   return slug ? getRecipientsForRepair(slug) : getGeneralOwnerPhones();
 }
 
-/**
- * @deprecated Superseded by getRecipientsForRepair(branchSlug) and
- * getRecipientsForCorporate(). Kept temporarily so any external caller doesn't
- * break — currently mirrors the general list (the safe default).
- */
-function getOwnerPhoneNumbers() {
-  return getGeneralOwnerPhones();
-}
-
 module.exports = {
   getGeneralOwnerPhones,
   getBranchOwnerPhones,
@@ -144,5 +135,4 @@ module.exports = {
   getRecipientsForCorporate,
   getRecipientsForStore,
   branchSlugFromStoreHint,
-  getOwnerPhoneNumbers, // deprecated
 };

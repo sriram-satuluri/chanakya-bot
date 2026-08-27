@@ -105,10 +105,21 @@ function updateSession(phone, updates) {
   scheduleFlush();
 }
 
+/**
+ * Reset the flow, keeping the two things that are properties of the PERSON
+ * rather than of the flow they just finished: their language, and the fact
+ * that we have already greeted them.
+ *
+ * `greeted` used to be dropped here, so every flow completion re-armed the
+ * full "Hey ya! 👋 Welcome to Chanakya – The Bag Studio, Vadodara's #1 Bag
+ * Store since 1996…" block. Someone who had just booked a repair and then
+ * typed something unrecognised got greeted like a stranger.
+ */
 function clearSession(phone) {
-  const lang = sessions.get(phone)?.language;
+  const prev = sessions.get(phone);
   const newSession = createEmptySession(phone);
-  if (lang) newSession.language = lang;
+  if (prev?.language) newSession.language = prev.language;
+  if (prev?.greeted) newSession.greeted = true;
   sessions.set(phone, newSession);
   scheduleFlush();
 }
@@ -123,6 +134,9 @@ function createEmptySession(phone) {
     collectedData: {},     // data gathered during a flow
     lastActivity: null,    // unix timestamp
     fallbackCount: 0,      // consecutive fallback triggers
+    greeted: false,        // full welcome block already shown this session
+    needsLanguagePick: false, // first contact, still owed a language choice
+    languagePickAsked: 0,  // how many times the picker has gone unanswered
   };
 }
 

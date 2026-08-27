@@ -15,6 +15,9 @@ const fs = require('node:fs');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'chanakya-test-'));
 process.env.SESSION_CACHE_PATH = path.join(TMP, 'sessions.json');
 process.env.DEDUP_CACHE_PATH = path.join(TMP, 'dedup.json');
+process.env.THROTTLE_CACHE_PATH = path.join(TMP, 'throttles.json');
+process.env.SKIP_WEBHOOK_SIGNATURE = '1';
+process.env.NODE_ENV = 'test';
 
 test('sessions survive a restart (was: every redeploy wiped in-progress bookings)', () => {
   const p = require.resolve('../src/utils/sessionStore');
@@ -193,5 +196,320 @@ test('an image sent after booking is filed, NOT treated as "show me the menu"', 
     'the welcome/main menu must NOT be sent — that was the conversation restarting',
   );
 });
+
+test('brand-new number: first reply is the language picker, not the menu', async () => {
+  const wp = require.resolve('../src/services/whatsapp');
+  require(wp);
+  const sent = [];
+  require.cache[wp].exports.sendTextMessage = async (to, body) => {
+    sent.push({ kind: 'text', body, buttons: [] }); return {};
+  };
+  require.cache[wp].exports.sendButtonMessage = async (to, body, buttons) => {
+    sent.push({ kind: 'button', body, buttons: (buttons || []).map((b) => b.id) }); return {};
+  };
+  require.cache[wp].exports.markAsRead = async () => ({});
+
+  const sp = require.resolve('../src/services/sheets');
+  require(sp);
+  require.cache[sp].exports.logAnalytics = async () => {};
+  require.cache[sp].exports.getCustomerLanguage = async () => null;
+  require.cache[sp].exports.addOrUpdateContact = async () => {};
+
+  for (const k of Object.keys(require.cache)) {
+    if (/[\\/]src[\\/](webhook|flows|utils[\\/]languagePref)/.test(k)) delete require.cache[k];
+  }
+  const { handleWebhook } = require('../src/webhook/handler');
+  sent.length = 0;
+  const phone = '919111000101';
+  await handleWebhook({
+    headers: {}, rawBody: null,
+    body: {
+      object: 'whatsapp_business_account',
+      entry: [{ changes: [{ field: 'messages', value: {
+        messages: [{ id: 'wamid.NEW' + Date.now(), from: phone, type: 'text', text: { body: 'hi' } }],
+        contacts: [{ profile: { name: 'T' } }],
+      } }] }],
+    },
+  }, { sendStatus() {}, status() { return this; }, json() {}, send() {} });
+  await new Promise((r) => setTimeout(r, 250));
+
+  assert.strictEqual(sent.length, 1, `expected 1 outbound, got ${sent.length}: ${JSON.stringify(sent)}`);
+  assert.strictEqual(sent[0].kind, 'button');
+  assert.deepStrictEqual(sent[0].buttons, ['lang_english', 'lang_hindi', 'lang_gujarati']);
+  assert.ok(!sent[0].buttons.includes('btn_repair'), 'picker must arrive before the menu');
+});
+
+test('returning customer skips the name question and gets the bag-type list', async () => {
+  const wp = require.resolve('../src/services/whatsapp');
+  require(wp);
+  const sent = [];
+  require.cache[wp].exports.sendTextMessage = async (to, body) => {
+    sent.push({ kind: 'text', body }); return {};
+  };
+  require.cache[wp].exports.sendListMessage = async (to, h, body, btn, sections) => {
+    sent.push({ kind: 'list', body, sections }); return {};
+  };
+  require.cache[wp].exports.sendButtonMessage = async (to, body) => {
+    sent.push({ kind: 'button', body }); return {};
+  };
+
+  const sp = require.resolve('../src/services/sheets');
+  require(sp);
+  require.cache[sp].exports.getCustomerName = async () => 'Ravi';
+  require.cache[sp].exports.setCustomerName = async () => {};
+
+  delete require.cache[require.resolve('../src/flows/repair')];
+  const { handleRepairFlow } = require('../src/flows/repair');
+
+  await handleRepairFlow('919888000001', 'btn_repair', 'text', {}, { language: 'english' });
+
+  assert.ok(
+    !sent.some((m) => /may I know your \*name\*/i.test(m.body || '')),
+    'must not ask a returning customer for their name',
+  );
+  assert.ok(
+    sent.some((m) => /Welcome back, \*Ravi/i.test(m.body || '')),
+    'should greet them by the stored name',
+  );
+  assert.ok(
+    sent.some((m) => /What type of bag needs repair/i.test(m.body || '')),
+    'should ask bag type as its own question',
+  );
+  const list = sent.find((m) => m.kind === 'list' && m.sections);
+  const rowIds = (list?.sections || []).flatMap((s) => (s.rows || []).map((r) => r.id));
+  assert.ok(rowIds.includes('bag_0'), 'bag-type list includes bag_0');
+  assert.ok(!rowIds.some((id) => String(id).startsWith('combo_')), 'must not use the combined bag+issue list');
+});
+
+test('picking a bag type continues to the problem list', async () => {
+  const wp = require.resolve('../src/services/whatsapp');
+  require(wp);
+  const sent = [];
+  require.cache[wp].exports.sendTextMessage = async (to, body) => {
+    sent.push({ kind: 'text', body }); return {};
+  };
+  require.cache[wp].exports.sendListMessage = async (to, h, body) => {
+    sent.push({ kind: 'list', header: h, body }); return {};
+  };
+  require.cache[wp].exports.sendButtonMessage = async (to, body) => {
+    sent.push({ kind: 'button', body }); return {};
+  };
+
+  delete require.cache[require.resolve('../src/flows/repair')];
+  const { handleRepairFlow } = require('../src/flows/repair');
+  const { getSession } = require('../src/utils/sessionStore');
+
+  await handleRepairFlow('919888000002', 'bag_0', 'text', {}, {
+    language: 'english',
+    currentFlow: 'repair',
+    flowStep: 'ask_bag_type',
+    collectedData: { name: 'Ravi' },
+  });
+
+  assert.ok(
+    sent.some((m) => /What's the problem/i.test(m.body || '')),
+    'bag-type tap should ask the problem next',
+  );
+  assert.ok(
+    !sent.some((m) => /Your Repairs/i.test((m.header || '') + (m.body || ''))),
+    'must not jump to the track-repairs picker',
+  );
+  const s = getSession('919888000002');
+  assert.strictEqual(s.flowStep, 'ask_problem');
+  assert.strictEqual(s.collectedData.bagType, 'Trolley / Luggage Bag');
+});
+
+test('picking a problem continues to the store picker', async () => {
+  const wp = require.resolve('../src/services/whatsapp');
+  require(wp);
+  const sent = [];
+  require.cache[wp].exports.sendTextMessage = async (to, body) => {
+    sent.push({ kind: 'text', body }); return {};
+  };
+  require.cache[wp].exports.sendListMessage = async (to, h, body) => {
+    sent.push({ kind: 'list', body }); return {};
+  };
+  require.cache[wp].exports.sendButtonMessage = async (to, body) => {
+    sent.push({ kind: 'button', body }); return {};
+  };
+
+  delete require.cache[require.resolve('../src/flows/repair')];
+  const { handleRepairFlow } = require('../src/flows/repair');
+  const { getSession } = require('../src/utils/sessionStore');
+
+  await handleRepairFlow('919888000003', 'prob_0', 'text', {}, {
+    language: 'english',
+    currentFlow: 'repair',
+    flowStep: 'ask_problem',
+    collectedData: { name: 'Ravi', bagType: 'Trolley / Luggage Bag' },
+  });
+
+  assert.ok(
+    sent.some((m) => m.kind === 'button' && /Almost done/i.test(m.body || '')),
+    'problem tap should open the store picker',
+  );
+  const s = getSession('919888000003');
+  assert.strictEqual(s.flowStep, 'ask_store');
+  assert.strictEqual(s.collectedData.problem, 'Zip / Chain Issue');
+});
+
+test('throttles survive a process restart', () => {
+  const p = require.resolve('../src/utils/throttleStore');
+  delete require.cache[p];
+  let store = require(p);
+  const ts = Date.now() - 1000;
+  store.setTimestamp('ticket', '919000000001', ts);
+  store._flushNow();
+  delete require.cache[p];
+  store = require(p);
+  assert.strictEqual(store.getTimestamp('ticket', '919000000001'), ts);
+});
+
+test('STOP on first contact is honoured before the language picker', async () => {
+  const wp = require.resolve('../src/services/whatsapp');
+  require(wp);
+  const sent = [];
+  require.cache[wp].exports.sendTextMessage = async (_to, body) => {
+    sent.push({ kind: 'text', body }); return {};
+  };
+  require.cache[wp].exports.sendButtonMessage = async (_to, body, buttons) => {
+    sent.push({ kind: 'button', body, buttons: (buttons || []).map((b) => b.id) }); return {};
+  };
+  require.cache[wp].exports.markAsRead = async () => ({});
+
+  const sp = require.resolve('../src/services/sheets');
+  require(sp);
+  const opts = [];
+  require.cache[sp].exports.logAnalytics = async () => {};
+  require.cache[sp].exports.getCustomerLanguage = async () => null;
+  require.cache[sp].exports.setContactOptIn = async (phone, optedIn) => { opts.push({ phone, optedIn }); };
+  require.cache[sp].exports.hasOpenOptedInTicket = async () => false;
+  require.cache[sp].exports.addOrUpdateContact = async () => {};
+
+  for (const k of Object.keys(require.cache)) {
+    if (/[\\/]src[\\/](webhook|flows|utils[\\/]languagePref)/.test(k)) delete require.cache[k];
+  }
+  const { handleWebhook } = require('../src/webhook/handler');
+  sent.length = 0;
+  const phone = '919111000201';
+  await handleWebhook({
+    headers: {}, rawBody: null,
+    body: {
+      object: 'whatsapp_business_account',
+      entry: [{ changes: [{ field: 'messages', value: {
+        messages: [{ id: 'wamid.STOP' + Date.now(), from: phone, type: 'text', text: { body: 'STOP' } }],
+        contacts: [{ profile: { name: 'T' } }],
+      } }] }],
+    },
+  }, { sendStatus() {}, status() { return this; }, json() {}, send() {} });
+
+  assert.deepStrictEqual(opts, [{ phone, optedIn: false }], 'STOP must persist marketing opt-out');
+  assert.ok(
+    sent.some((m) => m.kind === 'text' && /won.?t receive promotional/i.test(m.body || '')),
+    'customer gets the opt-out confirmation, not the picker',
+  );
+  assert.ok(
+    !sent.some((m) => (m.buttons || []).includes('lang_english')),
+    'language picker must not swallow a first-contact STOP',
+  );
+});
+
+test('corporate lead is not confirmed, notified, or throttled when createLead fails', async () => {
+  const wp = require.resolve('../src/services/whatsapp');
+  require(wp);
+  const sent = [];
+  require.cache[wp].exports.sendTextMessage = async (to, body) => {
+    sent.push({ to, body }); return {};
+  };
+  require.cache[wp].exports.sendButtonMessage = async (to, body) => {
+    sent.push({ to, body, kind: 'button' }); return {};
+  };
+
+  const sp = require.resolve('../src/services/sheets');
+  require(sp);
+  require.cache[sp].exports.createLead = async () => { throw new Error('sheets down'); };
+
+  const op = require.resolve('../src/utils/ownerPhones');
+  require(op);
+  require.cache[op].exports.getRecipientsForCorporate = () => ['919000099999'];
+
+  delete require.cache[require.resolve('../src/flows/corporate')];
+  const { handleCorporateFlow } = require('../src/flows/corporate');
+  const { getTimestamp } = require('../src/utils/throttleStore');
+  const { getSession, updateSession } = require('../src/utils/sessionStore');
+
+  const phone = '919111000202';
+  const session = {
+    language: 'english',
+    currentFlow: 'corporate',
+    flowStep: 'ask_branding',
+    collectedData: { company: 'Acme', name: 'Ravi', productType: 'Bags', quantity: '100' },
+  };
+  updateSession(phone, { ...session, lastActivity: Date.now() });
+
+  await handleCorporateFlow(phone, 'logo on the flap', session);
+
+  assert.ok(
+    sent.some((m) => /technical issue saving your enquiry/i.test(m.body || '')),
+    'customer is told the enquiry was not saved',
+  );
+  assert.ok(!sent.some((m) => /Enquiry Received/i.test(m.body || '')), 'must not confirm a failed write');
+  assert.ok(!sent.some((m) => m.to === '919000099999'), 'owners must not be pinged');
+  assert.strictEqual(getTimestamp('lead', phone), 0, 'failed write must not start the throttle window');
+  assert.strictEqual(getSession(phone).flowStep, 'ask_branding', 'session stays on branding so they can retry');
+});
+
+test('webhook does not ACK until processing has finished, even if processing throws', async () => {
+  const events = [];
+  const ss = require.resolve('../src/utils/sessionStore');
+  require(ss);
+  const origGet = require.cache[ss].exports.getSession;
+  require.cache[ss].exports.getSession = (phone) => {
+    if (phone === '919111000303') {
+      events.push('process');
+      throw new Error('boom');
+    }
+    return origGet(phone);
+  };
+
+  const wp = require.resolve('../src/services/whatsapp');
+  require(wp);
+  require.cache[wp].exports.markAsRead = async () => ({});
+
+  const sp = require.resolve('../src/services/sheets');
+  require(sp);
+  require.cache[sp].exports.logAnalytics = async () => {};
+  require.cache[sp].exports.getCustomerLanguage = async () => null;
+
+  for (const k of Object.keys(require.cache)) {
+    if (/[\\/]src[\\/](webhook|flows|utils[\\/]languagePref)/.test(k)) delete require.cache[k];
+  }
+  const { handleWebhook } = require('../src/webhook/handler');
+
+  const res = {
+    headersSent: false,
+    sendStatus() { events.push('ack'); this.headersSent = true; },
+    status() { return this; },
+    json() {},
+    send() {},
+  };
+  try {
+    await handleWebhook({
+      headers: {}, rawBody: null,
+      body: {
+        object: 'whatsapp_business_account',
+        entry: [{ changes: [{ field: 'messages', value: {
+          messages: [{ id: 'wamid.BOOM' + Date.now(), from: '919111000303', type: 'text', text: { body: 'hi' } }],
+          contacts: [{ profile: { name: 'T' } }],
+        } }] }],
+      },
+    }, res);
+  } finally {
+    require.cache[ss].exports.getSession = origGet;
+  }
+
+  assert.deepStrictEqual(events, ['process', 'ack'], 'ACK must not precede processing (old bug: 200 then work)');
+});
+
 
 test.after(() => { try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* temp dir */ } });

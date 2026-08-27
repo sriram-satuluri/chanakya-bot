@@ -10,15 +10,24 @@
 const test = require('node:test');
 const assert = require('node:assert');
 
+const fs = require('node:fs');
+const path = require('node:path');
+
 const { envInt, envBool } = require('../src/utils/env');
+const {
+  repairUpdatesReady, feedbackTemplatesReady, resolveRepairUpdateTemplate,
+  missingTemplateEnv,
+} = require('../src/utils/metaTemplates');
 const { formatIST, parseISTString, istHour, currentISTYear } = require('../src/utils/istTime');
 const {
   canonicalStatus, terminalStopReason, DEFAULT_REPAIR_TICKET_STATUS,
 } = require('../src/constants/repairTicketStatuses');
 const { sanitizeTemplateParam, isLikelySendablePhone } = require('../src/services/whatsapp');
-const { detectIntent } = require('../src/utils/intentDetect');
+const { isRetryableSheetsError, withSheetsRetry } = require('../src/services/sheets');
+const { detectIntent, intentMap } = require('../src/utils/intentDetect');
 const { getRecipientsForStore, branchSlugFromStoreHint } = require('../src/utils/ownerPhones');
 const { tryParseTicketId } = require('../src/utils/ticketParse');
+const { ticketLetterFromStore } = require('../src/utils/ticketId');
 
 // ── env parsing ───────────────────────────────────────────────
 test('envInt respects an explicit 0 (was silently becoming the default)', () => {
@@ -158,6 +167,19 @@ test('the Language menu button opens the picker, not the main menu', () => {
   assert.strictEqual(detectIntent('btn_language', S()), 'change_language');
 });
 
+test('list row ids stay in the repair flow (bag, problem)', () => {
+  const s = { phone: '919000000099', currentFlow: 'repair' };
+  assert.strictEqual(detectIntent('bag_0', s), '__continue_flow__');
+  assert.strictEqual(detectIntent('prob_1', s), '__continue_flow__');
+});
+
+test('"hi" inside stitching does not dump a booking into the main menu', () => {
+  const s = { phone: '919000000099', currentFlow: 'repair' };
+  assert.notStrictEqual(detectIntent('Stitching / Tear', s), 'main_menu');
+  assert.notStrictEqual(detectIntent('Something else', s), 'main_menu');
+  assert.strictEqual(detectIntent('hi', S()), 'main_menu');
+});
+
 test('an image mid-flow continues the flow', () => {
   assert.strictEqual(detectIntent('__IMAGE__', { phone: null, currentFlow: 'repair' }), '__continue_flow__');
 });
@@ -186,4 +208,191 @@ test('tryParseTicketId is forgiving about case, dashes and a TRACK prefix', () =
   assert.strictEqual(tryParseTicketId('TRACK CHA-2026-42'), 'CHA-2026-0042');
   assert.strictEqual(tryParseTicketId('CHA–2026–0042'), 'CHA-2026-0042');
   assert.strictEqual(tryParseTicketId('hello'), null);
+});
+
+test('tryParseTicketId understands store letters R (Alkapuri) and S (Sursagar)', () => {
+  assert.strictEqual(tryParseTicketId('cha-r-2026-20'), 'CHA-R-2026-0020');
+  assert.strictEqual(tryParseTicketId('TRACK CHA-S-2026-0020'), 'CHA-S-2026-0020');
+  assert.strictEqual(tryParseTicketId('CHA–R–2026–0042'), 'CHA-R-2026-0042');
+});
+
+test('ticketLetterFromStore maps both shops and rejects unknown', () => {
+  assert.strictEqual(ticketLetterFromStore('store_alkapuri'), 'R');
+  assert.strictEqual(ticketLetterFromStore('Alkapuri (Race Course Road)'), 'R');
+  assert.strictEqual(ticketLetterFromStore('store_sursagar'), 'S');
+  assert.strictEqual(ticketLetterFromStore('sursagar'), 'S');
+  assert.strictEqual(ticketLetterFromStore(''), null);
+});
+
+test('Shop menu button routes to the catalog', () => {
+  assert.strictEqual(detectIntent('btn_shop', S()), 'shop_catalog');
+});
+
+// ── approved-template gating ──────────────────────────────────
+const TEMPLATE_ENV_KEYS = [
+  'REPAIR_UPDATE_TEMPLATE_EN', 'REPAIR_UPDATE_TEMPLATE_HI', 'REPAIR_UPDATE_TEMPLATE_GU',
+  'FEEDBACK_TEMPLATE_EN', 'FEEDBACK_TEMPLATE_HI', 'FEEDBACK_TEMPLATE_GU',
+];
+
+function withClearedTemplateEnv(fn) {
+  const saved = {};
+  for (const k of TEMPLATE_ENV_KEYS) {
+    saved[k] = process.env[k];
+    delete process.env[k];
+  }
+  try {
+    fn();
+  } finally {
+    for (const k of TEMPLATE_ENV_KEYS) {
+      if (saved[k] === undefined) delete process.env[k];
+      else process.env[k] = saved[k];
+    }
+  }
+}
+
+test('repair/feedback jobs stay off until template env is set', () => {
+  withClearedTemplateEnv(() => {
+    assert.strictEqual(repairUpdatesReady(), false);
+    assert.strictEqual(feedbackTemplatesReady(), false);
+    assert.strictEqual(resolveRepairUpdateTemplate('english'), null);
+    assert.ok(missingTemplateEnv().includes('REPAIR_UPDATE_TEMPLATE_EN'));
+  });
+});
+
+test('setting only the English repair template is enough to go live', () => {
+  withClearedTemplateEnv(() => {
+    process.env.REPAIR_UPDATE_TEMPLATE_EN = 'repair_status_update_en';
+    assert.strictEqual(repairUpdatesReady(), true);
+    assert.deepStrictEqual(resolveRepairUpdateTemplate('hindi'), {
+      name: 'repair_status_update_en',
+      langCode: 'en',
+    });
+    assert.strictEqual(feedbackTemplatesReady(), false);
+  });
+});
+
+// ── encoding (PowerShell -replace has already destroyed these once) ──
+const UNICODE_SOURCES = [
+  'src/messages/index.js',
+  'src/utils/intentDetect.js',
+  'src/flows/repair.js',
+  'src/flows/catalog.js',
+  'src/flows/mainMenu.js',
+  'src/flows/corporate.js',
+  'src/flows/escalate.js',
+];
+
+test('user-facing source files keep Devanagari and Gujarati, not mojibake', () => {
+  const mojibake = /Ã|à¤|àª/;
+  const devanagari = /[ऀ-ॿ]/;
+  const gujarati = /[\u0A80-\u0AFF]/;
+  for (const rel of UNICODE_SOURCES) {
+    const text = fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
+    assert.equal(mojibake.test(text), false, `${rel} contains mojibake`);
+    assert.equal(devanagari.test(text), true, `${rel} lost Devanagari`);
+    assert.equal(gujarati.test(text), true, `${rel} lost Gujarati`);
+  }
+});
+
+// ── Intent shadowing ──────────────────────────────────────────
+/**
+ * The permanent guard for a bug class that has now recurred twice.
+ *
+ * intentMap is scanned in order and the first match wins, so a keyword can be
+ * listed under one intent while always resolving to another. That is invisible
+ * on inspection and only shows up when a customer types the obvious word:
+ *
+ *   "corporate"     matched shop_catalog  (it contains "rate")
+ *   "customer care" matched corporate     (it contains "custom")
+ *   "repair status" matched repair        (it contains "repair")
+ *   "help me"       matched main_menu     (it contains "help")
+ *
+ * Reads the real intentMap, so adding a colliding keyword fails here rather
+ * than in production.
+ */
+test('every intent keyword resolves to its own intent (no shadowing)', () => {
+  const shadowed = [];
+  for (const { intent, keywords } of intentMap) {
+    for (const kw of keywords || []) {
+      const got = detectIntent(kw, { phone: null });
+      if (got !== intent) {
+        shadowed.push(`"${kw}" is listed under ${intent} but resolves to ${got}`);
+      }
+    }
+  }
+  assert.deepStrictEqual(
+    shadowed, [],
+    `Shadowed keywords found — these can never be reached:\n  ${shadowed.join('\n  ')}`,
+  );
+});
+
+test('keyword matching allows suffixes but not mid-word matches', () => {
+  // Stems must keep working…
+  assert.strictEqual(detectIntent('repairing my bag', { phone: null }), 'repair');
+  assert.strictEqual(detectIntent('directions please', { phone: null }), 'store_location');
+  assert.strictEqual(detectIntent('conditions', { phone: null }), 'terms');
+  // …but a keyword must not match starting mid-word.
+  assert.strictEqual(detectIntent('corporate', { phone: null }), 'corporate');
+  assert.strictEqual(detectIntent('customer care', { phone: null }), 'escalate');
+});
+
+test('valid in-flow button taps do not count as fallbacks', () => {
+  // These resolve via their owning flow. Before the two-strike escalation
+  // threshold they merely wasted a counter tick; now, counting a correct
+  // answer as a failure would escalate someone who is doing fine.
+  assert.strictEqual(
+    detectIntent('ru_yes', { phone: null, currentFlow: 'repair_updates' }), '__continue_flow__');
+  assert.strictEqual(
+    detectIntent('ru_no', { phone: null, currentFlow: 'repair_updates' }), '__continue_flow__');
+  assert.strictEqual(
+    detectIntent('cat_all', { phone: null, currentFlow: 'catalog' }), '__continue_flow__');
+});
+
+test('handoff phrases beat the main-menu greeting keywords', () => {
+  // 'help' is a main_menu keyword and is checked first, so these have to be
+  // caught by the exact-phrase layer above the keyword loop.
+  for (const phrase of ['help me', 'i need help', 'need help', 'please help me']) {
+    assert.strictEqual(detectIntent(phrase, { phone: null }), 'escalate', `"${phrase}" must reach a human`);
+  }
+  // A bare greeting still opens the menu.
+  assert.strictEqual(detectIntent('hi', { phone: null }), 'main_menu');
+  assert.strictEqual(detectIntent('help', { phone: null }), 'main_menu');
+});
+
+// ── Sheets HTTP retry (I3) ────────────────────────────────────
+test('Sheets retries 429/5xx/timeouts, not 4xx', () => {
+  assert.ok(isRetryableSheetsError({ code: 429 }));
+  assert.ok(isRetryableSheetsError({ response: { status: 503 } }));
+  assert.ok(isRetryableSheetsError({ code: 'ETIMEDOUT', message: 'timeout' }));
+  assert.ok(isRetryableSheetsError({ message: 'socket hang up' }));
+  assert.ok(!isRetryableSheetsError({ code: 400, message: 'bad request' }));
+  assert.ok(!isRetryableSheetsError({ response: { status: 403 } }));
+});
+
+test('withSheetsRetry succeeds after a transient miss', async () => {
+  let n = 0;
+  const out = await withSheetsRetry(async () => {
+    n += 1;
+    if (n === 1) {
+      const err = new Error('rate limited');
+      err.code = 429;
+      throw err;
+    }
+    return 'ok';
+  });
+  assert.strictEqual(out, 'ok');
+  assert.strictEqual(n, 2);
+});
+
+test('withSheetsRetry does not retry a 400', async () => {
+  let n = 0;
+  await assert.rejects(async () => {
+    await withSheetsRetry(async () => {
+      n += 1;
+      const err = new Error('bad request');
+      err.code = 400;
+      throw err;
+    });
+  }, /bad request/);
+  assert.strictEqual(n, 1);
 });

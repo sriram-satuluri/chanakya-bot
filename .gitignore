@@ -9,9 +9,10 @@ node_modules/
 # Runtime data
 data/
 
-# Editors
+# Editors / local tooling
 .vscode/
 .idea/
+.claude/
 *.swp
 *.swo
 

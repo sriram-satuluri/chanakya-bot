@@ -106,11 +106,37 @@ follow-up rather than a prerequisite.
 
 ---
 
-## 2a. BINDING CONSTRAINT — ticket creation stays atomic
+## 2a. ~~BINDING CONSTRAINT — ticket creation stays atomic~~ — REVERSED
 
-**Whenever this is built, the ticket row must NOT be written to the sheet
-until the photo has also been received.** This is a hard requirement, not a
-preference.
+> **This constraint no longer holds and must not be built to.**
+>
+> It was written when the live flow was `ask_name → ask_bag_type → ask_problem
+> → ask_photo → ask_store`, where `createRepairTicket()` was genuinely
+> unreachable before a photo existed. That ordering has since been changed
+> deliberately: the ticket is now created as soon as the four answers are in,
+> and the photo is requested **afterwards** and may arrive days later (see
+> `flows/repair.js`, `flows/repairUpdates.js#askForPhoto`, and
+> `flows/latePhoto.js`).
+>
+> The reasoning that overturned it: holding four collected answers hostage to
+> an optional photo meant a redeploy, a session timeout, or simply a customer
+> whose bag was at home silently destroyed a completed booking. Staff
+> photograph the bag at drop-off anyway, so a photo-less ticket is a minor
+> gap in the record — while a lost booking is a customer who thinks they have
+> an appointment and does not. A ticket with no photo is now an accepted and
+> expected state, surfaced by `findRecentTicketAwaitingPhoto()`.
+>
+> **What a Flow version should do instead:** submit → `generateTicketId()` →
+> `createRepairTicket()` immediately with an empty photo cell, then ask for the
+> photo as a normal follow-up message. The late-photo handler files it against
+> the most recent photo-less ticket whenever it turns up.
+
+The original text is preserved below for context on *why* atomicity was once
+thought necessary — the dispute-evidence argument is still real, it simply
+lost to the abandoned-booking argument.
+
+<details>
+<summary>Original (superseded) constraint</summary>
 
 The tempting shortcut is to create the ticket the moment the Flow is
 submitted — the four fields are right there — and then patch the photo URL
@@ -121,11 +147,6 @@ the sheet now holds a ticket that looks real to staff but has no evidence of
 the damage — the exact thing the photo is there to provide, and the thing the
 before/after record depends on in a dispute.
 
-**The current step-by-step flow structurally cannot produce that state**,
-because `createRepairTicket()` is only reached after `ask_photo` has run. That
-property is worth more than the convenience of an early write, and the Flow
-version must preserve it exactly.
-
 Required shape:
 
 1. Flow submits → parse `nfm_reply`, hold the four values **in session only**
@@ -135,16 +156,11 @@ Required shape:
 4. **Only now** call `generateTicketId()` → `createRepairTicket()` with all
    five values together, as a single write.
 
-Note this also means the Flow version inherits the current flow's existing
-behaviour for a *failed* photo upload — the ticket is still created, with an
-empty photo URL and a warning to the customer, because at that point they did
-send a photo and the failure is ours, not theirs. The constraint is about
-never creating a ticket for a customer who never sent one at all.
+Session expiry was treated as the acceptable failure mode: if the customer
+abandoned after the Flow but before the photo, the session timed out and no
+ticket was created. That is precisely the behaviour later judged unacceptable.
 
-Session expiry is the acceptable failure mode here, and matches today: if the
-customer abandons after the Flow but before the photo, the session times out
-and **no ticket is created** — which is correct. An abandoned booking should
-leave no trace, not a half-formed record for staff to chase.
+</details>
 
 ---
 
@@ -315,8 +331,9 @@ Consequences to plan for:
 ## Decisions recorded
 
 1. **Photo in-Flow or after?** → **After.** Photo stays a normal message; the
-   existing Cloudinary path is reused unchanged (§2), subject to the atomicity
-   constraint in §2a.
+   existing Cloudinary path is reused unchanged (§2). The atomicity constraint
+   that used to apply here was reversed — see §2a; the ticket is created first
+   and the photo arrives whenever it arrives.
 2. **One Flow or three?** → **Three**, one per language (§4).
 3. **Build now?** → **No.** Deferred pending the team's answer on whether
    customers actually struggle with the current booking flow (see top).

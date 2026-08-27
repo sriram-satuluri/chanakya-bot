@@ -1,9 +1,10 @@
 const { sendTextMessage, sendButtonMessage } = require('../services/whatsapp');
 const { createLead } = require('../services/sheets');
-const { sendTemplateMessage } = require('../services/whatsapp');
 const { updateSession, clearSession } = require('../utils/sessionStore');
 const { handleEscalation } = require('./escalate');
 const { getRecipientsForCorporate } = require('../utils/ownerPhones');
+const { notifyOwners } = require('../utils/ownerAlert');
+const { getTimestamp, setTimestamp } = require('../utils/throttleStore');
 const M = require('../messages/index');
 
 /**
@@ -18,11 +19,6 @@ const M = require('../messages/index');
 const _rp = (p) => (p && p.length > 4) ? '***' + p.slice(-4) : '***';
 
 const LEAD_MIN_INTERVAL_MS = 60 * 60 * 1000; // 1 hour
-const _lastLeadAt = new Map(); // phone -> timestamp
-setInterval(() => {
-  const cutoff = Date.now() - LEAD_MIN_INTERVAL_MS * 2;
-  for (const [p, ts] of _lastLeadAt) if (ts < cutoff) _lastLeadAt.delete(p);
-}, 15 * 60 * 1000).unref();
 
 async function handleCorporateFlow(phone, text, session, intent = null) {
   const lang = session.language || 'english';
@@ -47,14 +43,12 @@ async function handleCorporateFlow(phone, text, session, intent = null) {
         return sendTextMessage(phone, M.get('corporate_ask_company', lang));
       }
       updateSession(phone, { flowStep: 'ask_contact_name', collectedData: { ...data, company: text.trim() } });
-      const q = { english: `Great! And your *name*?`, hindi: `बढ़िया! और आपका *नाम*?`, gujarati: `સરસ! અને આપનું *નામ*?` };
-      return sendTextMessage(phone, q[lang] || q.english);
+      return sendTextMessage(phone, M.get('corporate_ask_name', lang));
     }
 
     case 'ask_contact_name': {
       if (!text || text.length < 2 || /^(btn_|bag_|prob_|store_|cat_)/.test(text)) {
-        const q = { english: `Great! And your *name*?`, hindi: `बढ़िया! और आपका *नाम*?`, gujarati: `સરસ! અને આપનું *નામ*?` };
-        return sendTextMessage(phone, q[lang] || q.english);
+        return sendTextMessage(phone, M.get('corporate_ask_name', lang));
       }
       updateSession(phone, { flowStep: 'ask_product_type', collectedData: { ...data, name: text.trim() } });
       return sendTextMessage(phone, M.get('corporate_ask_product', lang));
@@ -82,21 +76,13 @@ async function handleCorporateFlow(phone, text, session, intent = null) {
       }
 
       // Anti-spam throttle: same phone can't create more than one lead per hour.
-      const lastAt = _lastLeadAt.get(phone) || 0;
+      // Read-only here — we only record the timestamp after Sheets accepts the row,
+      // otherwise a failed write would lock the customer out of retrying.
+      const lastAt = getTimestamp('lead', phone);
       if (Date.now() - lastAt < LEAD_MIN_INTERVAL_MS) {
-        const throttleMsg = {
-          english:
-            `We already have your recent enquiry on file — thanks! Our team will reach out shortly. If you need to send new details, please call:\n` +
-            `📞 See main menu → 🤝 Bulk / Corporate later, or contact the team directly.`,
-          hindi:
-            `आपकी हाल की enquiry हमें मिल चुकी है — धन्यवाद! हमारी टीम जल्द ही संपर्क करेगी। नई जानकारी भेजनी हो तो कृपया थोड़ी देर बाद पुनः प्रयास करें।`,
-          gujarati:
-            `આપની હાલમાં કરેલી enquiry અમને મળી ગઈ છે — આભાર! અમારી ટીમ ટૂંક સમયમાં સંપર્ક કરશે. નવી વિગત મોકલવી હોય તો કૃપા કરીને થોડી વાર પછી ફરી પ્રયાસ કરો.`,
-        };
         clearSession(phone);
-        return sendTextMessage(phone, throttleMsg[lang] || throttleMsg.english);
+        return sendTextMessage(phone, M.get('corporate_throttle', lang));
       }
-      _lastLeadAt.set(phone, Date.now());
 
       // All collected — create lead
       const finalData = { ...data, branding: text.trim(), phone, language: lang };
@@ -110,7 +96,10 @@ async function handleCorporateFlow(phone, text, session, intent = null) {
         console.log(`[LEAD] Created ${leadId} from ${_rp(phone)}`);
       } catch (err) {
         console.error('[LEAD] Failed to create:', err.message);
+        return sendTextMessage(phone, M.get('corporate_create_failed', lang));
       }
+
+      setTimestamp('lead', phone);
 
       // Notify owners via WhatsApp
       const ownerMsg =
@@ -124,11 +113,11 @@ async function handleCorporateFlow(phone, text, session, intent = null) {
         `🌐 Language: ${lang}`;
 
       // Corporate leads are branch-agnostic — general owners only, no branch-only extras.
-      for (const ownerPhone of getRecipientsForCorporate()) {
-        sendTextMessage(ownerPhone, ownerMsg).catch((e) => {
-          console.error(`[OWNER-ALERT] Failed to notify ${_rp(ownerPhone)} about lead ${leadId || '(no id)'}:`, e.message);
-        });
-      }
+      // Fire-and-forget; a closed 24h window surfaces as [OWNER-ALERT-LOST].
+      notifyOwners(getRecipientsForCorporate(), ownerMsg, {
+        kind: 'new_corporate_lead',
+        ref: leadId || '(no id)',
+      });
 
       const confirmMsg = M.fill(M.get('corporate_confirmed', lang), {
         name:    finalData.name,

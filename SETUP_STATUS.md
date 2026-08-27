@@ -2,6 +2,8 @@
 
 Generated for Sriram. Captures everything done so far + what's left.
 
+**Current go-live path:** `LAUNCH_CHECKLIST.md`. Status and feedback jobs stay silent until `REPAIR_UPDATE_TEMPLATE_*` / `FEEDBACK_TEMPLATE_*` are set to Meta-approved names. The remaining blockers are operator/Meta (production number, permanent token, templates, Railway volume) — not unfinished bot features.
+
 ## State of the codebase
 
 All known bugs are fixed and the code is verified working end-to-end. The bot has been observed receiving WhatsApp messages, processing them, calling Meta API, and getting back 200 OK with wamids. The only remaining unknowns are operational (token rotation + Meta-side delivery to your specific phone).
@@ -22,10 +24,10 @@ All known bugs are fixed and the code is verified working end-to-end. The bot ha
 
 | Service | Status |
 |---------|--------|
-| Google Sheet "Chatbot" (id `12Fb5g8I9k8d8OyWZucLNp0RzlZnlL35A6jt-TC0U8nI`) | All 7 tabs created with correct header rows; `repair_tickets!P1 = 0` (ticket counter); service account has Editor access. **Status column G**: run `npm run sheet:status-dropdown` so employees get a predefined dropdown (`src/constants/repairTicketStatuses.js`). Verified by read+write tests. |
-| Service account `chanakya-the-bag-studio@chanakya-chatbot-495613.iam.gserviceaccount.com` | Authentication works from the bot. |
-| Cloudinary account `dx4ozzg28` | Created. API key is in `.env` (never in this doc). API secret still pending (Cloudinary re-issues the email code each time you click reveal, so you must paste the latest one). Only matters for the photo upload step in repair flow. |
-| ngrok tunnel | URL `https://fit-crucial-coyness.ngrok-free.dev` is bound to your authtoken (stored in your ngrok config — never in this doc) — same URL every time you run ngrok. |
+| Google Sheet "Chatbot" (id: `<see GOOGLE_SHEETS_ID in .env>`) | All 7 tabs created with correct header rows; `repair_tickets!P1 = 0` (ticket counter); service account has Editor access. **Status column G**: run `npm run sheet:status-dropdown` so employees get a predefined dropdown (`src/constants/repairTicketStatuses.js`). Verified by read+write tests. |
+| Service account (`<see GOOGLE_SERVICE_ACCOUNT_EMAIL in .env>`) | Authentication works from the bot. |
+| Cloudinary account (`<see CLOUDINARY_CLOUD_NAME in .env>`) | Created. API key is in `.env` (never in this doc). API secret still pending (Cloudinary re-issues the email code each time you click reveal, so you must paste the latest one). Only matters for the photo upload step in repair flow. |
+| ngrok tunnel | A reserved URL is bound to your authtoken (both stored in your ngrok config — never in this doc), so you get the same URL every time you run ngrok. |
 | Meta webhook | Configured. Verify token = value of `WEBHOOK_VERIFY_TOKEN` in `.env` (rotate before launch — see LAUNCH_CHECKLIST.md). Subscribed to `messages` field. Verified working (Meta successfully GET-checked the URL). |
 
 ## The two operational problems blocking testing
@@ -80,6 +82,11 @@ All accepted by Meta, none delivered to your phone.
 **Sample failed wamid for support ticket:** `wamid.HBgMOTE4NDkwMDQ2NjYzFQIAERgSRkMyQUQ3NUVDNjA0RUZFMDRBAA==`
 
 **App + WABA identifiers for Meta support:**
+> Kept in the clear on purpose — Meta support asks for these by name, and they
+> are not credentials: the Phone Number ID appears in every Graph URL and grants
+> nothing without `META_ACCESS_TOKEN`. Anything that *is* sensitive (sheet id,
+> service account, tunnel URL, cloud name) reads `<see .env>` above.
+
 - App ID: `4289855304601657`
 - Phone Number ID: `1081765638356720`
 - Display Phone Number: `+1 555-641-7220`
@@ -136,14 +143,14 @@ If the `[STATUS] delivered` line appears but you still don't see the message in 
 ## .env reference (current values)
 
 ```
-META_PHONE_NUMBER_ID=1081765638356720
+META_PHONE_NUMBER_ID=<see .env>
 META_ACCESS_TOKEN=<see .env — System User token, never in this doc>
 META_APP_SECRET=                ← REQUIRED in production (see LAUNCH_CHECKLIST.md)
 WEBHOOK_VERIFY_TOKEN=<see .env — rotate before launch>
 GOOGLE_SHEETS_ID=<see .env>
-GOOGLE_SERVICE_ACCOUNT_EMAIL=chanakya-the-bag-studio@chanakya-chatbot-495613.iam.gserviceaccount.com
+GOOGLE_SERVICE_ACCOUNT_EMAIL=<see .env>
 GOOGLE_PRIVATE_KEY="<see .env — never in this doc>"
-CLOUDINARY_CLOUD_NAME=dx4ozzg28
+CLOUDINARY_CLOUD_NAME=<see .env>
 CLOUDINARY_API_KEY=<see .env>
 CLOUDINARY_API_SECRET=<see .env>          ← photo flow only
 OWNER_PHONE_VEDANT=<see .env>

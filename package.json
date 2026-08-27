@@ -10,9 +10,11 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "verify:meta": "node scripts/verify-meta-token.js",
+    "verify:sheet": "node verify_sheet.js",
     "sheet:status-dropdown": "node scripts/apply-repair-status-dropdown.js",
     "test": "node --test test/*.test.js",
-    "funnel": "node scripts/funnel-report.js"
+    "funnel": "node scripts/funnel-report.js",
+    "sheet:orphans": "node scripts/orphan-tickets.js"
   },
   "dependencies": {
     "axios": "^1.6.0",

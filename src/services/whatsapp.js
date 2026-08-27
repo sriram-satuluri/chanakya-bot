@@ -209,6 +209,30 @@ async function downloadMedia(mediaId) {
   return Buffer.from(imgRes.data);
 }
 
+/**
+ * The parts of a Meta error that are safe to put in a log.
+ *
+ * Logging `err.response.data` wholesale used to be the exception to this
+ * codebase's own redaction rule: Meta attaches an `error_data` block on some
+ * failure codes whose `details` can echo the recipient's number back at us, so
+ * a hosted log tail slowly accumulated exactly the full numbers that every
+ * other log line is careful to cut to last-4.
+ *
+ * Everything actually needed to diagnose a failure — the numeric code, the
+ * type, the human message and the trace id Meta support asks for — is kept.
+ */
+function summarizeMetaError(err) {
+  const e = err.response?.data?.error;
+  if (!e) return err.message;
+  return {
+    code: e.code,
+    subcode: e.error_subcode,
+    type: e.type,
+    message: e.message,
+    fbtrace_id: e.fbtrace_id,
+  };
+}
+
 // ── Internal caller ───────────────────────────────────────────
 async function call(payload) {
   const pid = phoneId();
@@ -243,7 +267,7 @@ async function call(payload) {
     const status = err.response?.status;
     const metaErr = err.response?.data?.error || {};
     const code = metaErr.code;
-    console.error('[WA] Send error:', status, err.response?.data || err.message);
+    console.error('[WA] Send error:', status, summarizeMetaError(err));
     if (status === 401 || code === 190) {
       console.error(
         '[WA] ⚠ META_ACCESS_TOKEN rejected (401 / OAuth code 190). This is NEVER a webhook bug.',
@@ -261,7 +285,7 @@ async function call(payload) {
       console.error(
         `[WA] ⚠ Message NOT delivered — 24-hour service window closed (Meta code ${code}). `
         + `Proactive/outbound-initiated messages to this recipient must use an APPROVED TEMPLATE `
-        + `(sendTemplateMessage). See LAUNCH_CHECKLIST.md → "Proactive notifications & the 24-hour window".`,
+        + `(sendTemplateMessage). Owner alerts also hit this if that person has not messaged the bot in 24h.`,
       );
     }
     throw err;

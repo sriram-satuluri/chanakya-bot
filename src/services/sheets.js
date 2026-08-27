@@ -11,6 +11,103 @@ const { envInt } = require('../utils/env');
 /** Max rows fetched for repair sheet (grow if needed). */
 const TICKETS_ROW_CAP = envInt('SHEETS_TICKETS_MAX_ROWS', 2500, { min: 1 });
 
+/**
+ * Per-call deadline for the Sheets HTTP client.
+ *
+ * Same idea as the Meta Graph 15s timeout and Cloudinary's 60s upload
+ * timeout: a hung Google round-trip must not pin a customer's WhatsApp
+ * turn forever. 15s matches Graph — Sheets is a JSON API, not a photo
+ * upload. Override with SHEETS_TIMEOUT_MS if a large tab read needs more.
+ */
+const SHEETS_TIMEOUT_MS = envInt('SHEETS_TIMEOUT_MS', 15000, { min: 1000 });
+const SHEETS_RETRY_ATTEMPTS = 3;
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * Transient failures worth another try. 4xx (except 429) will not succeed
+ * on retry; 429 / 5xx / timeouts / dropped sockets often will.
+ */
+function isRetryableSheetsError(err) {
+  const status = Number(err?.response?.status ?? err?.status ?? err?.code);
+  if (status === 429 || status === 500 || status === 502 || status === 503 || status === 504) {
+    return true;
+  }
+  const code = String(err?.code || err?.cause?.code || '');
+  if (['ETIMEDOUT', 'ECONNRESET', 'ECONNABORTED', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE'].includes(code)) {
+    return true;
+  }
+  const msg = String(err?.message || '');
+  return /timeout|timed out|socket hang up|network/i.test(msg);
+}
+
+/**
+ * Cloudinary-shaped retry: 3 attempts, 450ms × attempt backoff, log each miss.
+ * Non-retryable errors still log once and throw immediately.
+ */
+async function withSheetsRetry(op) {
+  let lastErr;
+  for (let attempt = 1; attempt <= SHEETS_RETRY_ATTEMPTS; attempt++) {
+    try {
+      return await op();
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[SHEETS] attempt ${attempt}/${SHEETS_RETRY_ATTEMPTS} failed:`, err.message || String(err));
+      if (!isRetryableSheetsError(err) || attempt === SHEETS_RETRY_ATTEMPTS) throw err;
+      await sleep(450 * attempt);
+    }
+  }
+  throw lastErr;
+}
+
+/**
+ * Wrap the methods this module actually calls so every Sheets round-trip gets
+ * a timeout (via the gaxios client options) and, where it is SAFE, retry.
+ *
+ * `append` is deliberately NOT retried. It is the one verb here that is not
+ * idempotent: if Google accepts the row but the response times out, a retry
+ * appends it a second time. For createRepairTicket that means two rows with
+ * the SAME ticket id — the id is minted before the call — and a phantom
+ * booking in the sheet that nobody knows is phantom. A ticket that fails
+ * loudly (the customer is told to call the store, and the throttle is not
+ * recorded so they can retry) is strictly better than one that silently
+ * duplicates. `get`, `update` and `batchUpdate` are all idempotent and keep
+ * their retries.
+ *
+ * Pass `_noRetry: true` in the params of a read to opt out per call — for
+ * latency-critical paths where a caller's own deadline is shorter than the
+ * retry backoff. The key is stripped before the request is built.
+ */
+function wrapSheetsClient(raw) {
+  const values = raw.spreadsheets.values;
+  const origValues = {
+    get: values.get.bind(values),
+    update: values.update.bind(values),
+    append: values.append.bind(values),
+    batchUpdate: values.batchUpdate.bind(values),
+  };
+  const retryable = (fn) => (params = {}) => {
+    const { _noRetry, ...rest } = params;
+    return _noRetry ? fn(rest) : withSheetsRetry(() => fn(rest));
+  };
+  values.get = retryable(origValues.get);
+  values.update = retryable(origValues.update);
+  values.batchUpdate = retryable(origValues.batchUpdate);
+  // NOT retried — see above. Still gets the client timeout.
+  values.append = (params) => origValues.append(params);
+
+  const ss = raw.spreadsheets;
+  const origSs = {
+    get: ss.get.bind(ss),
+    batchUpdate: ss.batchUpdate.bind(ss),
+  };
+  ss.get = retryable(origSs.get);
+  ss.batchUpdate = retryable(origSs.batchUpdate);
+  return raw;
+}
+
 // ── Auth (reuse client; JWT is lightweight but avoids extra setup per call)
 let jwtClient = null;
 function getAuth() {
@@ -20,13 +117,24 @@ function getAuth() {
       key: process.env.GOOGLE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
       scopes: ['https://www.googleapis.com/auth/spreadsheets'],
     });
+    // Token fetch uses the same HTTP stack. Without a deadline a hung OAuth
+    // round-trip would pin every Sheets call behind it.
+    if (jwtClient.transporter?.defaults) {
+      jwtClient.transporter.defaults.timeout = SHEETS_TIMEOUT_MS;
+    }
   }
   return jwtClient;
 }
 
 let sheetsApi = null;
 function sheets() {
-  if (!sheetsApi) sheetsApi = google.sheets({ version: 'v4', auth: getAuth() });
+  if (!sheetsApi) {
+    sheetsApi = wrapSheetsClient(google.sheets({
+      version: 'v4',
+      auth: getAuth(),
+      timeout: SHEETS_TIMEOUT_MS,
+    }));
+  }
   return sheetsApi;
 }
 
@@ -72,14 +180,9 @@ const TABS = {
   CATALOG:       'product_catalog',
   LEADS:         'leads_corporate',
   ANALYTICS:     'analytics_log',
-  BROADCASTS:    'broadcast_log',
   BROADCAST_Q:   'broadcast_queue',
   CONTACTS:      'opt_in_contacts',
 };
-
-// ── Cache for catalog (refreshed every 15 min) ────────────────
-let catalogCache = null;
-let catalogCacheTime = 0;
 
 /**
  * CSV / spreadsheet formula-injection defence.
@@ -247,7 +350,6 @@ async function findTicket(ticketId) {
         updatedAt:      rows[i][10],
         estimatedPickup:rows[i][11],
         language:       rows[i][12],
-        lastReassuranceAt: rows[i][14] || '',
         rowIndex:       i + 1,  // 1-indexed for Sheets API
       };
     }
@@ -277,6 +379,7 @@ async function findTicketsByPhone(phone, limit = 10) {
     if (rowPhone && rowPhone === want) {
       out.push({
         ticketId: rows[i][0],
+        customerName: String(rows[i][1] ?? '').trim(),
         bagType:  rows[i][3],
         problem:  rows[i][4],
         store:    rows[i][5],
@@ -288,29 +391,6 @@ async function findTicketsByPhone(phone, limit = 10) {
   // Rows are appended in creation order, so later rows are newer.
   out.reverse();
   return limit > 0 ? out.slice(0, limit) : out;
-}
-
-// Returns all tickets whose status changed since lastChecked
-async function getChangedTickets(lastChecked) {
-  const rows = await readTicketRows();
-  const changed = [];
-  for (let i = 1; i < rows.length; i++) {
-    const updatedAt = parseISTString(rows[i][10]);
-    if (updatedAt && updatedAt > lastChecked) {
-      changed.push({
-        ticketId:      rows[i][0],
-        customerName:  rows[i][1],
-        phone:         rows[i][2],
-        status:        rows[i][6],
-        afterPhotoUrl: extractHttpsUrlFromCell(rows[i][8]),
-        store:         rows[i][5],
-        language:      rows[i][12],
-        estimatedPickup: rows[i][11],
-        rowIndex:      i + 1,
-      });
-    }
-  }
-  return changed;
 }
 
 // Tickets that are 'Ready for Pickup' for 7+ days
@@ -335,60 +415,6 @@ async function getUncollectedTickets(daysThreshold = 7) {
     }
   }
   return result;
-}
-
-// Thin alias kept for call-site readability — sheet timestamps are always
-// IST wall-clock strings (see istTime.js), so parsing them means undoing
-// that shift, not a naive server-timezone-dependent Date() parse.
-const parseSheetDate = parseISTString;
-
-// Open tickets with no row update for staleHours+, and no reassurance ping in minHoursBetweenPings+
-async function getTicketsNeedingReassurance(options = {}) {
-  const staleMs = (options.staleHours ?? envInt('REASSURANCE_STALE_HOURS', 24, { min: 0 })) * 3600000;
-  const betweenMs =
-    (options.minHoursBetweenPings ?? envInt('REASSURANCE_MIN_HOURS', 20, { min: 0 })) * 3600000;
-  const skipStatuses = new Set([
-    DEFAULT_REPAIR_TICKET_STATUS,
-    'Picked Up',
-    'Cannot Repair',
-  ]);
-  const now = Date.now();
-  const rows = await readTicketRows();
-  const out = [];
-  for (let i = 1; i < rows.length; i++) {
-    const ticketId = rows[i][0]?.trim();
-    if (!ticketId) continue;
-    const status = canonicalStatus(rows[i][6]);
-    if (skipStatuses.has(status)) continue;
-
-    const updatedAt = parseSheetDate(rows[i][10]);
-    if (!updatedAt || now - updatedAt.getTime() < staleMs) continue;
-
-    const lastPing = parseSheetDate(rows[i][14]);
-    if (lastPing && now - lastPing.getTime() < betweenMs) continue;
-
-    out.push({
-      ticketId,
-      phone: rows[i][2],
-      status: status || '',
-      store: rows[i][5] || '',
-      language: rows[i][12] || 'english',
-      estimatedPickup: rows[i][11] || '',
-      rowIndex: i + 1,
-    });
-  }
-  return out;
-}
-
-async function setTicketReassuranceTime(rowIndex, at = new Date()) {
-  const ts = formatIST(at);
-  await sheets().spreadsheets.values.update({
-    spreadsheetId: SHEET_ID(),
-    range: `${TABS.TICKETS}!O${rowIndex}`,
-    valueInputOption: 'USER_ENTERED',
-    requestBody: { values: [[ts]] },
-  });
-  invalidateTicketCache();
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -465,10 +491,10 @@ async function recordProactiveUpdate(rowIndex, patch = {}) {
  * Backs the standing "stop updates" / "resume updates" commands and the
  * "you still have updates on your open ticket" note on bare STOP.
  */
-async function getOpenTicketsForPhone(phone) {
+async function getOpenTicketsForPhone(phone, { noRetry = false } = {}) {
   const want = String(phone ?? '').replace(/[^0-9]/g, '');
   if (!want) return [];
-  const rows = await readTicketRows();
+  const rows = await readTicketRows({ noRetry });
   const out = [];
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
@@ -628,38 +654,6 @@ async function setLastTicketNumber(num) {
 }
 
 // ══════════════════════════════════════════════════════════════
-// PRODUCT CATALOG
-// ══════════════════════════════════════════════════════════════
-
-async function getCatalog() {
-  const now = Date.now();
-  if (catalogCache && (now - catalogCacheTime) < 15 * 60 * 1000) {
-    return catalogCache;
-  }
-  const rows = await readAllRows(TABS.CATALOG);
-  const catalog = [];
-  for (let i = 1; i < rows.length; i++) {
-    if (rows[i][5]?.toUpperCase() === 'TRUE') { // in_stock
-      catalog.push({
-        productId:    rows[i][0],
-        category:     rows[i][1],
-        brand:        rows[i][2],
-        name:         rows[i][3],
-        priceRange:   rows[i][4],
-        descEn:       rows[i][6],
-        descHi:       rows[i][7],
-        descGu:       rows[i][8],
-        imageUrl:     rows[i][9],
-        availability: rows[i][10],
-      });
-    }
-  }
-  catalogCache = catalog;
-  catalogCacheTime = now;
-  return catalog;
-}
-
-// ══════════════════════════════════════════════════════════════
 // CORPORATE LEADS
 // ══════════════════════════════════════════════════════════════
 
@@ -773,6 +767,90 @@ async function setCustomerLanguage(phone, language) {
   ]);
 }
 
+const NAME_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
+const _nameCache = new Map(); // digits -> { name, at }
+
+function _digitsPhone(phone) {
+  return String(phone || '').replace(/[^0-9]/g, '');
+}
+
+function _usableCustomerName(s) {
+  const t = String(s || '').trim();
+  if (t.length < 2 || t.length > 60) return false;
+  if (/^(btn_|bag_|prob_|store_|cat_|lang_)/i.test(t)) return false;
+  return true;
+}
+
+/**
+ * Last known name for this WhatsApp number, or null.
+ * Prefers opt_in_contacts column E (written when they first book), then the
+ * newest repair ticket. Cached so a returning customer tapping Repair does
+ * not pay an extra Sheets round-trip on every step.
+ */
+async function getCustomerName(phone) {
+  const digits = _digitsPhone(phone);
+  if (!digits) return null;
+  const hit = _nameCache.get(digits);
+  if (hit && Date.now() - hit.at < NAME_CACHE_TTL_MS) return hit.name;
+  try {
+    const rows = await readAllRows(TABS.CONTACTS);
+    for (let i = 1; i < rows.length; i++) {
+      if (String(rows[i][0] || '').replace(/[^0-9]/g, '') === digits) {
+        const n = String(rows[i][4] || '').trim();
+        if (_usableCustomerName(n)) {
+          _nameCache.set(digits, { name: n, at: Date.now() });
+          return n;
+        }
+        break;
+      }
+    }
+  } catch (e) {
+    console.warn('[SHEETS] getCustomerName contacts read failed:', e.message);
+  }
+  try {
+    const tickets = await findTicketsByPhone(phone, 1);
+    const n = tickets[0]?.customerName;
+    if (_usableCustomerName(n)) {
+      _nameCache.set(digits, { name: n, at: Date.now() });
+      return n;
+    }
+  } catch (e) {
+    console.warn('[SHEETS] getCustomerName tickets read failed:', e.message);
+  }
+  return null;
+}
+
+/**
+ * Persist the customer's name on opt_in_contacts column E. Does not touch
+ * language (B) or marketing opt-in (D). Creates the row if they have never
+ * been seen as a contact.
+ */
+async function setCustomerName(phone, name) {
+  const digits = _digitsPhone(phone);
+  const n = String(name || '').trim();
+  if (!digits || !_usableCustomerName(n)) return;
+  _nameCache.set(digits, { name: n, at: Date.now() });
+  const rows = await readAllRows(TABS.CONTACTS);
+  for (let i = 1; i < rows.length; i++) {
+    if (String(rows[i][0] || '').replace(/[^0-9]/g, '') === digits) {
+      await sheets().spreadsheets.values.update({
+        spreadsheetId: SHEET_ID(),
+        range: `${TABS.CONTACTS}!E${i + 1}`,
+        valueInputOption: 'RAW',
+        requestBody: { values: [[safeUserText(n, 60)]] },
+      });
+      return;
+    }
+  }
+  await appendRow(TABS.CONTACTS, [
+    safeUserText(phone, 20),
+    'english',
+    formatISTDate(),
+    'TRUE',
+    safeUserText(n, 60),
+  ]);
+}
+
 /**
  * Set the opted_in flag (column D) for a contact. Used by the STOP / RESUME
  * keywords so customers control whether broadcasts reach them (WhatsApp
@@ -861,10 +939,6 @@ async function setBroadcastStatus(rowIndex, status) {
   });
 }
 
-async function markBroadcastSent(rowIndex) {
-  return setBroadcastStatus(rowIndex, 'sent');
-}
-
 // ══════════════════════════════════════════════════════════════
 // GENERIC HELPERS
 // ══════════════════════════════════════════════════════════════
@@ -919,7 +993,14 @@ function invalidateTicketCache() {
   _ticketCacheAt = 0;
 }
 
-async function readTicketRows({ fresh = false } = {}) {
+/**
+ * @param {{fresh?: boolean, noRetry?: boolean}} [opts]
+ *   noRetry — skip the retry backoff for callers on a short deadline. The
+ *   retry sleeps 450ms + 900ms before its third attempt, which alone outlasts
+ *   a sub-second budget, so retrying there just guarantees the caller's
+ *   fallback path instead of ever returning data.
+ */
+async function readTicketRows({ fresh = false, noRetry = false } = {}) {
   const now = Date.now();
   if (!fresh && _ticketCache && TICKET_CACHE_TTL_MS > 0 && (now - _ticketCacheAt) < TICKET_CACHE_TTL_MS) {
     return _ticketCache;
@@ -928,6 +1009,7 @@ async function readTicketRows({ fresh = false } = {}) {
     spreadsheetId: SHEET_ID(),
     range: `${TABS.TICKETS}!A1:Z${TICKETS_ROW_CAP}`,
     valueRenderOption: 'FORMULA',
+    _noRetry: noRetry,
   });
   _ticketCache = res.data.values || [];
   _ticketCacheAt = now;
@@ -989,22 +1071,24 @@ async function applyRepairTicketStatusDropdown() {
 }
 
 module.exports = {
-  createRepairTicket, findTicket, findTicketsByPhone, getChangedTickets, getUncollectedTickets,
-  getTicketsNeedingReassurance, setTicketReassuranceTime,
+  createRepairTicket, findTicket, findTicketsByPhone, getUncollectedTickets,
   getLastTicketNumber, setLastTicketNumber,
-  getCatalog,
   createLead,
   logAnalytics,
   addOrUpdateContact, getOptInContacts, setContactOptIn,
   getCustomerLanguage, setCustomerLanguage,
+  getCustomerName, setCustomerName,
   getTicketsForProactiveUpdate, recordProactiveUpdate,
   getOpenTicketsForPhone, setRepairUpdatesOptIn, hasOpenOptedInTicket,
   getTicketsForFeedback, recordFeedbackState, findTicketAwaitingRating,
-  attachBeforePhoto, findRecentTicketAwaitingPhoto, invalidateTicketCache,
-  TICKET_COL,
-  getPendingBroadcasts, markBroadcastSent, setBroadcastStatus,
+  attachBeforePhoto, findRecentTicketAwaitingPhoto,
+  getPendingBroadcasts, setBroadcastStatus,
   applyRepairTicketStatusDropdown,
   readTicketRows,
   TABS,
-  sheetImageFormulaFromUrl, extractHttpsUrlFromCell,
+  // Retry internals — exported for the unit tests that pin the
+  // retry-vs-fail-fast classification.
+  isRetryableSheetsError, withSheetsRetry,
 };
+// Kept private (used only within this module): invalidateTicketCache,
+// TICKET_COL, sheetImageFormulaFromUrl, extractHttpsUrlFromCell.

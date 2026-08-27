@@ -1,8 +1,11 @@
 const { sendTextMessage, sendButtonMessage } = require('../services/whatsapp');
-const { updateSession, clearSession } = require('../utils/sessionStore');
+const { updateSession } = require('../utils/sessionStore');
 const { getOpenTicketsForPhone } = require('../services/sheets');
-const { getRecipientsForStore } = require('../utils/ownerPhones');
+const { getRecipientsForStore, branchSlugFromStoreHint } = require('../utils/ownerPhones');
+const { notifyOwners } = require('../utils/ownerAlert');
+const { directoryWithEmail, directoryWithEmailForBranch } = require('../constants/publicContact');
 const { envInt } = require('../utils/env');
+const { getTimestamp, setTimestamp } = require('../utils/throttleStore');
 const M = require('../messages/index');
 
 const _rp = (p) => (p && p.length > 4) ? '***' + p.slice(-4) : '***';
@@ -21,11 +24,55 @@ const _rp = (p) => (p && p.length > 4) ? '***' + p.slice(-4) : '***';
  * rate limit they can't see.
  */
 const HANDOFF_ALERT_COOLDOWN_MS = envInt('HANDOFF_ALERT_COOLDOWN_MINUTES', 30, { min: 0 }) * 60 * 1000;
-const _lastHandoffAlertAt = new Map(); // phone -> timestamp
-setInterval(() => {
-  const cutoff = Date.now() - HANDOFF_ALERT_COOLDOWN_MS * 2;
-  for (const [p, ts] of _lastHandoffAlertAt) if (ts < cutoff) _lastHandoffAlertAt.delete(p);
-}, 15 * 60 * 1000).unref();
+
+/**
+ * How long the customer-facing reply will wait on Sheets to find out WHICH
+ * branch this handoff belongs to.
+ *
+ * Knowing the branch lets us show the right people (Sursagar's directory
+ * includes Nilesh; Alkapuri's does not). But someone who has just asked for a
+ * human is the last person who should be made to wait on a spreadsheet, and
+ * the pre-existing contract of this function was that the customer is served
+ * immediately. So the lookup RACES this timeout: win and they get the precise
+ * branch directory, lose and they get the general one — which is exactly what
+ * this message showed before. Never an error, never a delay worth noticing.
+ *
+ * Set 0 to skip the lookup entirely and always use the general directory.
+ */
+const HANDOFF_BRANCH_LOOKUP_MS = envInt('HANDOFF_BRANCH_LOOKUP_MS', 1500, { min: 0 });
+
+/** Resolve `promise` or give up after ms. Never rejects. */
+function raceTimeout(promise, ms) {
+  return Promise.race([
+    promise.catch(() => null),
+    new Promise((resolve) => { const t = setTimeout(() => resolve(null), ms); t.unref?.(); }),
+  ]);
+}
+
+/**
+ * Which branch should this customer's handoff show contacts for?
+ * Their most recent open ticket decides. No ticket, a slow sheet, or an
+ * unrecognised store name all fall back to null → general directory.
+ * @returns {Promise<'alkapuri'|'sursagar'|null>}
+ */
+async function branchForHandoff(phone) {
+  if (HANDOFF_BRANCH_LOOKUP_MS <= 0) return null;
+  // noRetry: the Sheets retry sleeps 450ms + 900ms of backoff before its third
+  // attempt, which on its own outlasts this budget. Retrying here would not
+  // rescue a single lookup — it would just guarantee the timeout fires and the
+  // customer silently loses their branch's contacts (Nilesh, for Sursagar)
+  // precisely when Sheets is struggling. One clean attempt, then fall back.
+  const open = await raceTimeout(
+    getOpenTicketsForPhone(phone, { noRetry: true }),
+    HANDOFF_BRANCH_LOOKUP_MS,
+  );
+  if (!open) {
+    console.warn(`[HANDOFF] Branch lookup for ${_rp(phone)} timed out or failed — using general contacts.`);
+    return null;
+  }
+  const ticket = open.length ? open[open.length - 1] : null;
+  return branchSlugFromStoreHint(ticket?.store);
+}
 
 /**
  * Customer asked for a human.
@@ -49,8 +96,15 @@ async function handleEscalation(phone, lang = 'english', triggerText = '') {
     lastActivity: Date.now(),
   });
 
-  await sendTextMessage(phone, M.get('escalate_message', lang));
-  console.log(`[ESCALATE] Bot paused for ${_rp(phone)}`);
+  // Show the RIGHT people: a Sursagar customer needs Nilesh's number, an
+  // Alkapuri one does not. Time-boxed — see HANDOFF_BRANCH_LOOKUP_MS.
+  const branchSlug = await branchForHandoff(phone);
+  const contactBlock = branchSlug
+    ? directoryWithEmailForBranch(branchSlug)
+    : directoryWithEmail();
+
+  await sendTextMessage(phone, M.fill(M.get('escalate_message', lang), { contactBlock }));
+  console.log(`[ESCALATE] Bot paused for ${_rp(phone)} (contacts: ${branchSlug || 'general'})`);
 
   // Owner notification is best-effort: the customer has already been served,
   // so a failure here must never surface to them or throw.
@@ -68,7 +122,7 @@ async function handleEscalation(phone, lang = 'english', triggerText = '') {
  */
 async function notifyOwnersOfHandoff(phone, lang, triggerText) {
   // Cooldown check first so a repeat-typer can't buzz three phones repeatedly.
-  const last = _lastHandoffAlertAt.get(phone) || 0;
+  const last = getTimestamp('handoff', phone);
   if (HANDOFF_ALERT_COOLDOWN_MS > 0 && Date.now() - last < HANDOFF_ALERT_COOLDOWN_MS) {
     console.log(`[HANDOFF] Owner alert suppressed for ${_rp(phone)} (cooldown active) — customer still got contact details.`);
     return;
@@ -106,36 +160,50 @@ async function notifyOwnersOfHandoff(phone, lang, triggerText) {
   lines.push('', '_The bot has paused for this customer and shared your contact details._');
   const msg = lines.join('\n');
 
-  _lastHandoffAlertAt.set(phone, Date.now());
-  for (const ownerPhone of recipients) {
-    await sendTextMessage(ownerPhone, msg).catch((e) =>
-      console.error(`[HANDOFF] Failed to alert owner ${_rp(ownerPhone)}:`, e.message));
-  }
+  setTimestamp('handoff', phone);
+  const { sent } = await notifyOwners(recipients, msg, {
+    kind: 'human_handoff',
+    ref: ticket?.ticketId || 'no-ticket',
+  });
   console.log(
-    `[HANDOFF] Alerted ${recipients.length} owner(s) for ${_rp(phone)} `
+    `[HANDOFF] Reached ${sent}/${recipients.length} owner(s) for ${_rp(phone)} `
     + `(store=${ticket?.store || 'none'}, ticket=${ticket?.ticketId || 'none'})`,
   );
 }
 
+/**
+ * Consecutive unresolved messages before we stop apologising and offer a human.
+ *
+ * Two, not three. Repeating "Sorry, I didn't quite get that" a third time is
+ * the point at which a person concludes the bot is useless and leaves — and
+ * the third apology has never once been the message that unblocked anyone.
+ * Note this only counts genuinely unresolved input: valid button taps that
+ * happen to route through the fallback intent no longer increment it (see the
+ * flow-owned id checks in utils/intentDetect.js).
+ */
+const FALLBACK_BEFORE_HUMAN = envInt('FALLBACK_BEFORE_HUMAN', 2, { min: 1 });
+
 async function handleFallback(phone, lang = 'english', fallbackCount = 1) {
-  if (fallbackCount >= 3) {
-    // Offer human after 3 failed attempts, then reset the counter so tapping
-    // "Menu" and coming back doesn't insta-trigger the same escalation offer.
+  const { showQuickMenu } = require('./mainMenu');
+
+  if (fallbackCount >= FALLBACK_BEFORE_HUMAN) {
+    // Reset so tapping "Menu" and coming back doesn't insta-trigger this again.
     updateSession(phone, { fallbackCount: 0 });
-    const msg = M.get('fallback_offer_human', lang);
+    // Talk to a Person leads — at this point it is the useful option, not the
+    // afterthought, so it should not be the second button.
     const buttons = {
-      english:  [{ id: 'btn_human', title: '👤 Talk to Team' },     { id: 'btn_main_menu', title: '🏠 Menu' }],
-      hindi:    [{ id: 'btn_human', title: '👤 टीम से बात करें' },   { id: 'btn_main_menu', title: '🏠 मेनू' }],
-      gujarati: [{ id: 'btn_human', title: '👤 ટીમ સાથે વાત' }, { id: 'btn_main_menu', title: '🏠 મેનુ' }],
+      english:  [{ id: 'btn_human', title: '👤 Talk to a Person' }, { id: 'btn_main_menu', title: '🏠 Menu' }],
+      hindi:    [{ id: 'btn_human', title: '👤 स्टाफ से बात करें' },  { id: 'btn_main_menu', title: '🏠 मेनू' }],
+      gujarati: [{ id: 'btn_human', title: '👤 સ્ટાફ સાથે વાત' },   { id: 'btn_main_menu', title: '🏠 મેનુ' }],
     };
-    return sendButtonMessage(phone, msg, buttons[lang] || buttons.english);
+    return sendButtonMessage(phone, M.get('fallback_offer_human', lang), buttons[lang] || buttons.english);
   }
 
-  // Show main menu with gentle message
-  const msg = M.get('fallback_once', lang);
-  const { showMainMenu } = require('./mainMenu');
-  await sendTextMessage(phone, msg);
-  return showMainMenu(phone, lang);
+  // First miss: quick menu only. showQuickMenu deliberately skips the welcome
+  // block — someone who has been chatting for five minutes should not be
+  // re-introduced to the shop because they typed something we didn't parse.
+  await sendTextMessage(phone, M.get('fallback_once', lang));
+  return showQuickMenu(phone, lang);
 }
 
 module.exports = { handleEscalation, handleFallback, notifyOwnersOfHandoff };

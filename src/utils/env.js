@@ -51,4 +51,11 @@ function envBool(name, fallback = false) {
   return fallback;
 }
 
-module.exports = { envInt, envBool };
+/** Trimmed string from env, or empty when unset. Never falls back to a guessed name. */
+function envStr(name) {
+  const raw = process.env[name];
+  if (raw === undefined) return '';
+  return String(raw).trim();
+}
+
+module.exports = { envInt, envBool, envStr };

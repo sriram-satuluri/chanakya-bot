@@ -8,6 +8,7 @@ const {
 const { withinSendWindow } = require('./statusPoller');
 const { envInt } = require('../utils/env');
 const { formatIST } = require('../utils/istTime');
+const { feedbackTemplatesReady, resolveFeedbackTemplate } = require('../utils/metaTemplates');
 
 /**
  * Post-service feedback request.
@@ -32,13 +33,6 @@ const { formatIST } = require('../utils/istTime');
 const FEEDBACK_DELAY_HOURS = envInt('FEEDBACK_DELAY_HOURS', 24, { min: 0 });
 const HOUR_MS = 60 * 60 * 1000;
 
-const TEMPLATE_BY_LANG = {
-  english:  () => process.env.FEEDBACK_TEMPLATE_EN?.trim() || 'repair_feedback_en',
-  hindi:    () => process.env.FEEDBACK_TEMPLATE_HI?.trim() || 'repair_feedback_hi',
-  gujarati: () => process.env.FEEDBACK_TEMPLATE_GU?.trim() || 'repair_feedback_gu',
-};
-const LANG_CODE = { english: 'en', hindi: 'hi', gujarati: 'gu' };
-
 function logPhone(p) {
   const s = String(p ?? '');
   return s.length > 4 ? '***' + s.slice(-4) : '***';
@@ -46,6 +40,11 @@ function logPhone(p) {
 
 async function sendFeedbackRequests() {
   const now = new Date();
+
+  if (!feedbackTemplatesReady()) {
+    console.log('[FEEDBACK] Templates not set (FEEDBACK_TEMPLATE_EN/HI/GU) — skipping until Meta approves them.');
+    return;
+  }
 
   // Same courtesy window as the status updates — never message at 11pm.
   if (!withinSendWindow(now)) {
@@ -91,11 +90,16 @@ async function sendFeedbackRequests() {
       continue;
     }
 
-    const lang = LANG_CODE[t.language] ? t.language : 'english';
-    const templateName = TEMPLATE_BY_LANG[lang]();
+    const lang = t.language === 'hindi' || t.language === 'gujarati' ? t.language : 'english';
+    const resolved = resolveFeedbackTemplate(lang);
+    if (!resolved) {
+      skipped++;
+      continue;
+    }
+    const { name: templateName, langCode } = resolved;
 
     try {
-      const res = await sendTemplateMessage(t.phone, templateName, LANG_CODE[lang], [
+      const res = await sendTemplateMessage(t.phone, templateName, langCode, [
         {
           type: 'body',
           parameters: [

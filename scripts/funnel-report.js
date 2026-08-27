@@ -87,7 +87,8 @@ async function main() {
   console.log(`  Gave up         : ${dropped}${first ? ` (${Math.round((dropped / first) * 100)}%)` : ''}`);
   console.log('');
   console.log('  A high drop at one specific step is the signal worth acting on.');
-  console.log('  Spread-out attrition usually means people got distracted, not stuck.\n');
+  console.log('  Spread-out attrition usually means people got distracted, not stuck.');
+  console.log('  Returning customers skip ask_name, so ask_bag_type may exceed ask_name — that is expected.\n');
 }
 
 main().catch((e) => { console.error('ERROR:', e.message); process.exit(1); });

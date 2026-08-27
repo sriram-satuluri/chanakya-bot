@@ -1,6 +1,7 @@
 const { sendTextMessage, sendLocationMessage, sendButtonMessage } = require('../services/whatsapp');
 const { updateSession, clearSession } = require('../utils/sessionStore');
 const { googleMapsDrivingDirectionsUrl } = require('../utils/mapsUrls');
+const { handleEscalation } = require('./escalate');
 const {
   directoryWithEmailForBranch,
   directoryWithEmailAndWebForBranch,
@@ -15,15 +16,15 @@ const STORES_BY_BUTTON = {
     name:    'Chanakya Bag Studio — Alkapuri',
     short:   'Alkapuri',
     address: 'Near Race Course Circle, Race Course Road, Vadodara',
-    lat:     22.3149,
-    lng:     73.1760,
+    lat:     22.3122,
+    lng:     73.1647,
   },
   btn_dir_sursagar: {
     name:    'Chanakya Bag Studio — Sursagar',
     short:   'Sursagar',
     address: 'Opp. Pratap Talkies, Opp. Sursagar Lake (East), Vadodara 390001',
-    lat:     22.2973,
-    lng:     73.1932,
+    lat:     22.3013,
+    lng:     73.2045,
   },
 };
 
@@ -65,6 +66,13 @@ async function sendStorePicker(phone, lang) {
  */
 async function handleStoreLocations(phone, text, session, intent = null) {
   const lang = session.language || 'english';
+
+  // Asking for a human outranks the store picker. Without this, "talk to a
+  // person" typed while choosing a store just re-sent the two direction
+  // buttons — the request was silently discarded. Matches the guard the
+  // repair / track / catalog / corporate flows already have.
+  if (intent === 'escalate') return handleEscalation(phone, lang, text);
+
   const inPick =
     session.currentFlow === FLOW && session.flowStep === 'pick_store';
   const isDirBtn = text === 'btn_dir_alkapuri' || text === 'btn_dir_sursagar';

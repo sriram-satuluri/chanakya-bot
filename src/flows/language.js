@@ -1,6 +1,6 @@
 const { sendButtonMessage, sendTextMessage } = require('../services/whatsapp');
 const { setCustomerLanguage } = require('../services/sheets');
-const { updateSession } = require('../utils/sessionStore');
+const { getSession, updateSession } = require('../utils/sessionStore');
 const { setCachedLanguage } = require('../utils/languagePref');
 const M = require('../messages/index');
 
@@ -36,7 +36,10 @@ async function handleLanguageChoice(phone, text) {
   if (!m) return null;
   const chosen = m[1];
 
-  // Session first so the confirmation below is already in the new language
+  // Capture BEFORE we clear the flag — first pick skips the extra "saved" line.
+  const wasFirstPick = Boolean(getSession(phone).needsLanguagePick);
+
+  // Session first so any follow-up is already in the new language
   // even if the Sheets write is slow or fails.
   updateSession(phone, {
     language: chosen, currentFlow: null, flowStep: null,
@@ -48,11 +51,14 @@ async function handleLanguageChoice(phone, text) {
     await setCustomerLanguage(phone, chosen);
     console.log(`[LANG] ${_rd(phone)} chose ${chosen} (persisted)`);
   } catch (e) {
-    // Non-fatal: they still get served in the chosen language this session.
     console.error(`[LANG] Failed to persist language for ${_rd(phone)}:`, e.message);
   }
 
-  await sendTextMessage(phone, M.get('language_saved', chosen));
+  // First-ever pick: the main menu in their language is the confirmation.
+  // Later changes (typed "language") still get an explicit "saved" line.
+  if (!wasFirstPick) {
+    await sendTextMessage(phone, M.get('language_saved', chosen));
+  }
   return chosen;
 }
 

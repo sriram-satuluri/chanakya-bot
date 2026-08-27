@@ -3,10 +3,14 @@ const {
   recordProactiveUpdate,
 } = require('../services/sheets');
 const {
-  sendTemplateMessage, sendTextMessage, isLikelySendablePhone, sanitizeTemplateParam,
+  sendTemplateMessage, isLikelySendablePhone, sanitizeTemplateParam,
 } = require('../services/whatsapp');
 const { getRecipientsForCorporate } = require('../utils/ownerPhones');
+const { notifyOwners } = require('../utils/ownerAlert');
 const { envInt, envBool } = require('../utils/env');
+const {
+  repairUpdatesReady, resolveRepairUpdateTemplate,
+} = require('../utils/metaTemplates');
 const M = require('../messages/index');
 const {
   canonicalStatus, terminalStopReason, DEFAULT_REPAIR_TICKET_STATUS,
@@ -53,13 +57,6 @@ const MAX_CONSECUTIVE_FAILURES = 3;
 const MIN_RESEND_GAP_MS = 10 * 60 * 1000;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-
-const TEMPLATE_BY_LANG = {
-  english:  () => process.env.REPAIR_UPDATE_TEMPLATE_EN?.trim() || 'repair_status_update_en',
-  hindi:    () => process.env.REPAIR_UPDATE_TEMPLATE_HI?.trim() || 'repair_status_update_hi',
-  gujarati: () => process.env.REPAIR_UPDATE_TEMPLATE_GU?.trim() || 'repair_status_update_gu',
-};
-const LANG_CODE = { english: 'en', hindi: 'hi', gujarati: 'gu' };
 
 /** Redacted by default; set PROACTIVE_LOG_FULL_PHONE=true if you need raw
  *  numbers in logs for billing reconciliation. The wamid is logged either way
@@ -125,6 +122,11 @@ function decideAction(t, now) {
 async function pollStatusChanges() {
   const now = new Date();
 
+  if (!repairUpdatesReady()) {
+    console.log('[PROACTIVE] Repair-update templates not set (REPAIR_UPDATE_TEMPLATE_EN/HI/GU) — skipping. Opt-in will not be offered until these are approved in Meta.');
+    return;
+  }
+
   if (!withinSendWindow(now)) {
     console.log(`[PROACTIVE] Outside send window (${QUIET_START_HOUR}:00-${QUIET_END_HOUR}:00 IST, now ${istHour(now)}:xx) — skipping.`);
     return;
@@ -178,8 +180,13 @@ async function pollStatusChanges() {
       continue;
     }
 
-    const lang = LANG_CODE[t.language] ? t.language : 'english';
-    const templateName = TEMPLATE_BY_LANG[lang]();
+    const lang = t.language === 'hindi' || t.language === 'gujarati' ? t.language : 'english';
+    const resolved = resolveRepairUpdateTemplate(lang);
+    if (!resolved) {
+      skipped++;
+      continue;
+    }
+    const { name: templateName, langCode } = resolved;
     const statusText = M.statusLabel(t.status, lang);
 
     // Only the SEND lives in this try. A Sheets write failure must never be
@@ -189,7 +196,7 @@ async function pollStatusChanges() {
     let sendResult = null;
     let sendError = null;
     try {
-      sendResult = await sendTemplateMessage(t.phone, templateName, LANG_CODE[lang], [{
+      sendResult = await sendTemplateMessage(t.phone, templateName, langCode, [{
         type: 'body',
         // Every value is sanitized: these originate from customer free-text /
         // staff-typed sheet cells, and Meta rejects params containing newlines,
@@ -295,15 +302,10 @@ async function alertOwnersOfAutoUnsubscribe(items) {
     + `They will hear nothing further until this is looked at. Check the number is `
     + `valid and on WhatsApp, and that the status templates are still approved.`;
 
-  const recipients = getRecipientsForCorporate(); // general owners
-  if (!recipients.length) {
-    console.warn('[AUTO-UNSUBSCRIBE] No owner numbers configured — alert not sent.');
-    return;
-  }
-  for (const ownerPhone of recipients) {
-    await sendTextMessage(ownerPhone, msg).catch((e) =>
-      console.error(`[AUTO-UNSUBSCRIBE] Failed to alert owner ${logPhone(ownerPhone)}:`, e.message));
-  }
+  await notifyOwners(getRecipientsForCorporate(), msg, {
+    kind: 'auto_unsubscribe',
+    ref: items.map((i) => i.ticketId).join(','),
+  });
 }
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

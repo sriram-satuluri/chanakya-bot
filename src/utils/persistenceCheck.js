@@ -45,6 +45,18 @@ function persistentPaths() {
       file: process.env.SESSION_CACHE_PATH?.trim()
         || path.join(process.cwd(), 'data', 'sessions.json'),
     },
+    {
+      label: 'per-phone throttles',
+      why: 'ticket / lead / handoff cooldowns must survive a redeploy or a spammer gets a free window',
+      file: process.env.THROTTLE_CACHE_PATH?.trim()
+        || path.join(process.cwd(), 'data', 'throttles.json'),
+    },
+    {
+      label: 'health-check counters',
+      why: 'a redeploy must not reset consecutive Meta/Sheets failures and delay the owner alert',
+      file: process.env.HEALTH_CACHE_PATH?.trim()
+        || path.join(process.cwd(), 'data', 'health_state.json'),
+    },
   ];
 }
 

@@ -1,6 +1,7 @@
 const { sendTextMessage } = require('../services/whatsapp');
 const { findTicketAwaitingRating, recordFeedbackState } = require('../services/sheets');
 const { getRecipientsForStore } = require('../utils/ownerPhones');
+const { notifyOwners } = require('../utils/ownerAlert');
 const { envInt } = require('../utils/env');
 const M = require('../messages/index');
 
@@ -79,13 +80,13 @@ async function alertOwnersOfLowRating(ticket, rating) {
     '_Bag was collected and the customer is unhappy. Worth a call today while it can still be put right._',
   ].filter(Boolean).join('\n');
 
-  for (const ownerPhone of recipients) {
-    await sendTextMessage(ownerPhone, msg).catch((e) =>
-      console.error(`[FEEDBACK] Failed to alert owner ${_rp(ownerPhone)}:`, e.message));
-  }
+  const { sent } = await notifyOwners(recipients, msg, {
+    kind: 'low_rating',
+    ref: ticket.ticketId,
+  });
   console.log(
     `[LOW-RATING] ticket=${ticket.ticketId} rating=${rating}/5 store=${ticket.store || 'unknown'} `
-    + `— alerted ${recipients.length} owner(s)`,
+    + `— reached ${sent}/${recipients.length} owner(s)`,
   );
 }
 

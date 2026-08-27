@@ -3,9 +3,7 @@
 
 const {
   defaultCallLine,
-  directoryPhonesOnly,
   directoryWithEmail,
-  directoryWithEmailAndWeb,
 } = require('../constants/publicContact');
 const {
   DEFAULT_REPAIR_TICKET_STATUS,
@@ -66,10 +64,41 @@ const messages = {
     gujarati:`*Chanakya – The Bag Studio* માં આપનું સ્વાગત છે! 🎒\nવડોદરાનો નં. 1 બેગ સ્ટોર — 1996 થી.\n\n_Online se Sasta Offline Store!_\n\nઆજે હું આપની કેવી મદદ કરી શકું?`,
   },
 
+  // {{terms_link_line}} is filled by flows/mainMenu.js with M.termsLinkLine(),
+  // so the disclaimer carries a real, tappable link to the T&Cs rather than
+  // only telling people to type *terms*. Resolves to an empty string when
+  // neither TERMS_URL nor TERMS_DOC_URL is configured, leaving the wording
+  // exactly as it was.
   menu_more_options: {
-    english: `Here are more options — tap below:\n\n_By using this bot you accept our Terms. Type *terms* anytime to read them._`,
-    hindi:   `और विकल्प — नीचे टैप करें:\n\n_इस bot का उपयोग करके आप हमारी Terms स्वीकार करते हैं। कभी भी *terms* टाइप करके पढ़ें।_`,
-    gujarati:`વધુ વિકલ્પો — નીચે ટૅપ કરો:\n\n_આ bot વાપરીને તમે અમારી Terms સ્વીકારો છો. ગમે ત્યારે *terms* ટાઈપ કરીને વાંચો._`,
+    english: `Here are more options — tap below:\n\n_Type *language* to switch English / हिंदी / ગુજરાતી. By using this bot you accept our Terms. Type *terms* anytime to read them._{{terms_link_line}}`,
+    hindi:   `और विकल्प — नीचे टैप करें:\n\n_भाषा बदलने के लिए *language* टाइप करें। इस bot का उपयोग करके आप हमारी Terms स्वीकार करते हैं। कभी भी *terms* टाइप करके पढ़ें।_{{terms_link_line}}`,
+    gujarati:`વધુ વિકલ્પો — નીચે ટૅપ કરો:\n\n_ભાષા બદલવા *language* ટાઈપ કરો. આ bot વાપરીને તમે અમારી Terms સ્વીકારો છો. ગમે ત્યારે *terms* ટાઈપ કરીને વાંચો._{{terms_link_line}}`,
+  },
+
+  /** Header / button label / section title for the options LIST row. */
+  menu_list_header: {
+    english: 'More Options',
+    hindi:   'और विकल्प',
+    gujarati:'વધુ વિકલ્પો',
+  },
+
+  menu_list_button: {
+    english: 'View options',
+    hindi:   'विकल्प देखें',
+    gujarati:'વિકલ્પો જુઓ',
+  },
+
+  menu_list_section: {
+    english: 'Help & info',
+    hindi:   'मदद और जानकारी',
+    gujarati:'મદદ અને માહિતી',
+  },
+
+  /** Shown instead of the full welcome when the customer is already mid-chat. */
+  menu_quick_prompt: {
+    english: `What would you like to do next?`,
+    hindi:   `आगे क्या करना चाहेंगे?`,
+    gujarati:`આગળ શું કરવા માંગો છો?`,
   },
 
   // ── Terms & Conditions ──
@@ -184,6 +213,12 @@ const messages = {
     gujarati:`સમજ્યો, *{{name}}!* 👍\n\nકયા પ્રકારની બેગ રિપેર કરવી છે?`,
   },
 
+  ask_bag_type_returning: {
+    english: `Welcome back, *{{name}}!* 👋\n\nWhat type of bag needs repair?\n\n_Not {{name}}? Type your name._`,
+    hindi:   `वापस आ गए, *{{name}}!* 👋\n\nकिस तरह का बैग रिपेयर करवाना है?\n\n_{{name}} नहीं? अपना नाम लिखें._`,
+    gujarati:`પાછા આવ્યા, *{{name}}!* 👋\n\nકયા પ્રકારની બેગ રિપેર કરવી છે?\n\n_{{name}} નહીં? તમારું નામ લખો._`,
+  },
+
   ask_problem: {
     english: `*{{bagType}}* noted. What's the problem with it?`,
     hindi:   `*{{bagType}}* नोट किया। उसमें क्या समस्या है?`,
@@ -202,9 +237,9 @@ const messages = {
   },
 
   track_ask_id: {
-    english: `Please enter your *Ticket ID* to track your repair.\n\nYou can paste the whole line from your confirmation (e.g. *TRACK cha-2026-0042*) — *capital letters are optional*.`,
-    hindi:   `अपना *Ticket ID* डालें ताकि रिपेयर track हो सके।\n\nकन्फर्मेशन मैसेज से पूरी लाइन paste करें (जैसे *TRACK cha-2026-0042*) — *बड़े-छोटे अक्षर से फर्क नहीं पड़ता*।`,
-    gujarati:`આપનો *Ticket ID* દાખલ કરો, રિપેર ટ્રૅક કરવા.\n\nકન્ફર્મેશન મેસેજની આખી લાઈન પેસ્ટ કરો (દા.ત. *TRACK cha-2026-0042*) — *મોટા-નાના અક્ષરથી ફરક નથી પડતો.*`,
+    english: `Please enter your *Ticket ID* to track your repair.\n\nYou can paste the whole line from your confirmation (e.g. *TRACK cha-r-2026-0042*) — *capital letters are optional*.`,
+    hindi:   `अपना *Ticket ID* डालें ताकि रिपेयर track हो सके।\n\nकन्फर्मेशन मैसेज से पूरी लाइन paste करें (जैसे *TRACK cha-r-2026-0042*) — *बड़े-छोटे अक्षर से फर्क नहीं पड़ता*।`,
+    gujarati:`આપનો *Ticket ID* દાખલ કરો, રિપેર ટ્રૅક કરવા.\n\nકન્ફર્મેશન મેસેજની આખી લાઈન પેસ્ટ કરો (દા.ત. *TRACK cha-r-2026-0042*) — *મોટા-નાના અક્ષરથી ફરક નથી પડતો.*`,
   },
 
   track_not_found: {
@@ -259,15 +294,6 @@ const messages = {
     gujarati:`😔 *સ્ટેટસ અપડેટ — {{ticketId}}*\n\nસંપૂર્ણ ચકાસણી પછી, દુ:ખ સાથે જણાવવાનું કે *આ નુકસાન રિપેર થઈ શકે એમ નથી.*\n\nઆપની બેગ લેવા *{{store}}* પર આવો.\nઅસુવિધા બદલ ક્ષમા કરશો.\n\n${defaultCallLine()}`,
   },
 
-  status_no_change_reassurance: {
-    english:
-      `💛 *Quick update — {{ticketId}}*\n\nYour repair is still showing as: *{{status}}*\n🏪 *Store:* {{store}}\n📅 *ETA (if set):* {{estimatedPickup}}\n\nWe're on it — sometimes the sheet doesn’t change for a day while work continues. If anything feels off, reply here or call us.\n${defaultCallLine()}`,
-    hindi:
-      `💛 *जल्दी अपडेट — {{ticketId}}*\n\nआपकी रिपेयर स्थिति अब भी: *{{status}}*\n🏪 *स्टोर:* {{store}}\n📅 *ETA:* {{estimatedPickup}}\n\nकाम जारी है — कभी-कभी शीट 1 दिन तक अपडेट नहीं होती जबकि काम चल रहा हो। किसी भी सवाल के लिए यहाँ रिप्लाई करें या कॉल करें।\n${defaultCallLine()}`,
-    gujarati:
-      `💛 *ટૂંકો અપડેટ — {{ticketId}}*\n\nઆપની રિપેરની સ્થિતિ હજુ: *{{status}}*\n🏪 *સ્ટોર:* {{store}}\n📅 *ETA:* {{estimatedPickup}}\n\nઅમે કામ કરી રહ્યા છીએ — ક્યારેક એક દિવસ સુધી શીટ અપડેટ ન થાય ત્યારે પણ કામ ચાલતું હોય છે. કોઈ પ્રશ્ન હોય તો અહીં જવાબ આપો અથવા કૉલ કરો.\n${defaultCallLine()}`,
-  },
-
   store_intro: {
     english: `🗺️ *Our Stores — Chanakya Bag Studio*\n\nWe have *2 stores* in Vadodara.\n⏰ *10 AM – 9 PM* (Mon – Sun)\n\nPick a store below — we’ll open *Google Maps driving directions* to that door.`,
     hindi:   `🗺️ *हमारे स्टोर — Chanakya Bag Studio*\n\nवडोदरा में *2 स्टोर।*\n⏰ *सुबह 10 – रात 9* (सोम – रवि)\n\nनीचे स्टोर चुनें — *Google Maps दिशा–निर्देश* खुलेंगे।`,
@@ -298,6 +324,12 @@ const messages = {
     gujarati:`આપની *કંપની/શાળા/સંસ્થાનું નામ* શું છે?`,
   },
 
+  corporate_ask_name: {
+    english: `Great! And your *name*?`,
+    hindi:   `बढ़िया! और आपका *नाम*?`,
+    gujarati:`સરસ! અને આપનું *નામ*?`,
+  },
+
   corporate_ask_product: {
     english: `What type of bags do you need?\n\n_e.g. School bags, Laptop bags, Travelling bags, Handbags, Corporate gift bags, Custom printed bags_`,
     hindi:   `आपको किस तरह के बैग चाहिए?\n\n_जैसे: स्कूल बैग, लैपटॉप बैग, ट्रैवलिंग बैग, हैंडबैग, कॉर्पोरेट गिफ्ट बैग_`,
@@ -316,6 +348,30 @@ const messages = {
     gujarati:`શું બેગ પર *કસ્ટમ પ્રિન્ટિંગ/બ્રૅન્ડિંગ* જોઈએ?\n\n_દા.ત. કંપનીનો લૉગો, શાળાનું નામ_`,
   },
 
+  corporate_throttle: {
+    english: `We already have your recent enquiry on file — thanks! Our team will reach out shortly. If you need to send new details, please wait a bit and try again, or call us from the main menu.`,
+    hindi:   `आपकी हाल की enquiry हमें मिल चुकी है — धन्यवाद! हमारी टीम जल्द ही संपर्क करेगी। नई जानकारी भेजनी हो तो कृपया थोड़ी देर बाद पुनः प्रयास करें।`,
+    gujarati:`આપની હાલમાં કરેલી enquiry અમને મળી ગઈ છે — આભાર! અમારી ટીમ ટૂંક સમયમાં સંપર્ક કરશે. નવી વિગત મોકલવી હોય તો કૃપા કરીને થોડી વાર પછી ફરી પ્રયાસ કરો.`,
+  },
+
+  corporate_create_failed: {
+    english: `Sorry, there was a technical issue saving your enquiry. Please send the branding details again in a few minutes, or call us:\n${defaultCallLine()}`,
+    hindi:   `माफ़ करें, आपकी enquiry सेव नहीं हो पाई। कृपया ब्रांडिंग की जानकारी कुछ मिनट बाद दोबारा भेजें, या कॉल करें:\n${defaultCallLine()}`,
+    gujarati:`માફ કરશો, આપની enquiry સેવ થઈ શકી નહીં. કૃપા કરીને બ્રાન્ડિંગની વિગત થોડી વાર પછી ફરી મોકલો, અથવા કૉલ કરો:\n${defaultCallLine()}`,
+  },
+
+  ticket_create_failed: {
+    english: `Sorry, there was a technical issue creating your ticket. Please call us directly:\n${defaultCallLine()}`,
+    hindi:   `माफ़ करें, टिकट बनाने में तकनीकी समस्या हुई। सीधे कॉल करें:\n${defaultCallLine()}`,
+    gujarati:`માફ કરશો, ટિકિટ બનાવવામાં તકનીકી સમસ્યા આવી. કૃપા કરીને સીધો કૉલ કરો:\n${defaultCallLine()}`,
+  },
+
+  ticket_throttle: {
+    english: `You've just booked a repair with us. If you have another bag to book, please give it a few minutes — or call us and we'll add it for you:\n${defaultCallLine()}`,
+    hindi:   `आपने अभी-अभी एक रिपेयर बुक की है। दूसरा बैग बुक करना हो तो कुछ मिनट रुकें — या हमें कॉल करें, हम जोड़ देंगे:\n${defaultCallLine()}`,
+    gujarati:`તમે હમણાં જ એક રિપેર બુક કરી છે. બીજી બેગ બુક કરવી હોય તો થોડી મિનિટ રાહ જુઓ — અથવા અમને કૉલ કરો, અમે ઉમેરી દઈશું:\n${defaultCallLine()}`,
+  },
+
   corporate_confirmed: {
     english: `✅ *Enquiry Received!*\n\nThank you *{{name}}* from *{{company}}!*\n\nWe'll contact you within *18 hours* with a custom quote.\n\nFor urgent orders:\n${directoryWithEmail()}`,
     hindi:   `✅ *इन्क्वायरी मिली!*\n\n*{{company}}* से *{{name}}* जी, धन्यवाद!\n\n*18 घंटे* में हम आपसे कस्टम कोटेशन के साथ संपर्क करेंगे।\n\nअर्जेंट ऑर्डर:\n${directoryWithEmail()}`,
@@ -323,9 +379,12 @@ const messages = {
   },
 
   escalate_message: {
-    english: `Sure! Connecting you to our team. 👋\n\nYou can reach us directly:\n\n${directoryWithEmail()}\n\n⏰ Available: 10 AM – 9 PM\n\nType *menu* anytime to restart the chatbot.`,
-    hindi:   `बिल्कुल! आपको हमारी टीम से जोड़ रहे हैं। 👋\n\nसीधे संपर्क करें:\n\n${directoryWithEmail()}\n\n⏰ समय: सुबह 10 बजे – रात 9 बजे\n\nचैटबॉट दोबारा शुरू करने के लिए *menu* टाइप करें।`,
-    gujarati:`ચોક્કસ! તમને અમારી ટીમ સાથે જોડી રહ્યા છીએ. 👋\n\nસીધો સંપર્ક કરો:\n\n${directoryWithEmail()}\n\n⏰ સમય: સવારે 10 – રાત 9\n\nચેટબોટ ફરીથી શરૂ કરવા *menu* ટાઇપ કરો.`,
+    // {{contactBlock}} is branch-aware: flows/escalate.js fills it with the
+    // Sursagar directory (which includes Nilesh) when the customer has an open
+    // ticket at that branch, and the branch-agnostic directory otherwise.
+    english: `Sure! Connecting you to our team. 👋\n\nYou can reach us directly:\n\n{{contactBlock}}\n\n⏰ Available: 10 AM – 9 PM\n\nType *menu* anytime to restart the chatbot.`,
+    hindi:   `बिल्कुल! आपको हमारी टीम से जोड़ रहे हैं। 👋\n\nसीधे संपर्क करें:\n\n{{contactBlock}}\n\n⏰ समय: सुबह 10 बजे – रात 9 बजे\n\nचैटबॉट दोबारा शुरू करने के लिए *menu* टाइप करें।`,
+    gujarati:`ચોક્કસ! તમને અમારી ટીમ સાથે જોડી રહ્યા છીએ. 👋\n\nસીધો સંપર્ક કરો:\n\n{{contactBlock}}\n\n⏰ સમય: સવારે 10 – રાત 9\n\nચેટબોટ ફરીથી શરૂ કરવા *menu* ટાઇપ કરો.`,
   },
 
   fallback_once: {
@@ -383,18 +442,6 @@ const messages = {
     english: `Select`,
     hindi:   `चुनें`,
     gujarati:`પસંદ કરો`,
-  },
-
-  btn_main_menu_short: {
-    english: `🏠 Main Menu`,
-    hindi:   `🏠 मुख्य मेनू`,
-    gujarati:`🏠 મુખ્ય મેનુ`,
-  },
-
-  btn_track_repair_short: {
-    english: `📍 Track Repair`,
-    hindi:   `📍 ट्रैक करें`,
-    gujarati:`📍 ટ્રૅક કરો`,
   },
 
   contact_for_store: {
@@ -589,7 +636,9 @@ function termsUrlSuffix(lang) {
   return `${labels[lang] || labels.english} ${url}`;
 }
 
+// termsLinkUrl stays private — callers want the formatted line/suffix, and
+// both of those already resolve the URL internally.
 module.exports = {
-  get, fill, randomGreeting, termsLinkUrl, termsLinkLine, termsUrlSuffix,
+  get, fill, randomGreeting, termsLinkLine, termsUrlSuffix,
   statusLabel,
 };

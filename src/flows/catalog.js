@@ -2,7 +2,7 @@ const { sendTextMessage, sendButtonMessage, sendListMessage } = require('../serv
 const { updateSession, clearSession } = require('../utils/sessionStore');
 const { handleEscalation } = require('./escalate');
 const { defaultCallLine } = require('../constants/publicContact');
-const { CATEGORIES, categoryUrl, browseAllUrl, CATALOG_SITE } = require('../constants/catalogCategories');
+const { CATEGORIES, categoryUrl, browseAllUrl } = require('../constants/catalogCategories');
 const M = require('../messages/index');
 
 // We deep-link customers to the website rather than try to render 100+ products
@@ -46,7 +46,7 @@ async function handleCatalogFlow(phone, text, session, intent = null) {
 
 const SECTION_TITLES = {
   english:  { bags: '🎒 Bags & Travel',   gifts: '🎁 Gifts & Lifestyle', home:  '🏠 Home & Seasonal' },
-  hindi:    { bags: '🎒 बैग और ट्रॅवल',     gifts: '🎁 गिफ्ट और लाइफस्टाइल', home:  '🏠 होम और सीज़नल' },
+    hindi:    { bags: '🎒 बैग और ट्रैवल',     gifts: '🎁 गिफ्ट और लाइफस्टाइल', home:  '🏠 होम और सीज़नल' },
   gujarati: { bags: '🎒 બેગ અને ટ્રાવેલ', gifts: '🎁 ગિફ્ટ અને લાઇફસ્ટાઇલ', home:  '🏠 હોમ અને સીઝનલ' },
 };
 

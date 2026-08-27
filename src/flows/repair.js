@@ -1,13 +1,12 @@
-const crypto = require('crypto');
-const { sendTextMessage, sendButtonMessage, sendListMessage, downloadMedia } = require('../services/whatsapp');
-const { createRepairTicket } = require('../services/sheets');
-const { uploadBuffer } = require('../services/cloudinary');
+const { sendTextMessage, sendButtonMessage, sendListMessage } = require('../services/whatsapp');
+const { createRepairTicket, getCustomerName, setCustomerName } = require('../services/sheets');
+const { getTimestamp, setTimestamp } = require('../utils/throttleStore');
 const { generateTicketId } = require('../utils/ticketId');
 const { getRecipientsForRepair } = require('../utils/ownerPhones');
+const { notifyOwners } = require('../utils/ownerAlert');
 const { updateSession, clearSession } = require('../utils/sessionStore');
 const {
   branchSlugFromRepairStoreId,
-  defaultCallLine,
   directoryWithEmailAndWebForBranch,
   directoryWithEmailForBranch,
 } = require('../constants/publicContact');
@@ -34,11 +33,6 @@ const _rp = (p) => (p && p.length > 4) ? '***' + p.slice(-4) : '***';
  * is told to call the store rather than being silently dropped.
  */
 const TICKET_MIN_INTERVAL_MS = envInt('TICKET_MIN_INTERVAL_MINUTES', 10, { min: 0 }) * 60 * 1000;
-const _lastTicketAt = new Map(); // phone -> timestamp
-setInterval(() => {
-  const cutoff = Date.now() - TICKET_MIN_INTERVAL_MS * 2;
-  for (const [p, ts] of _lastTicketAt) if (ts < cutoff) _lastTicketAt.delete(p);
-}, 15 * 60 * 1000).unref();
 
 /** Normalize WhatsApp row titles vs typed text (unicode slashes, spacing). */
 function normalizeInteractiveLabel(s = '') {
@@ -48,6 +42,14 @@ function normalizeInteractiveLabel(s = '') {
     .replace(/[\u2044\u2215／]/g, '/')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+function looksLikePersonName(text) {
+  const t = String(text || '').trim();
+  if (t.length < 2 || t.length > 40) return false;
+  if (/^(btn_|bag_|prob_|store_|cat_|lang_|combo_)/i.test(t)) return false;
+  if (/^\d+$/.test(t)) return false;
+  return true;
 }
 
 // ── Bag types & problems ──────────────────────────────────────
@@ -98,15 +100,6 @@ const STORE_NAMES = {
   }
 })();
 
-/** WhatsApp image as native image OR as document (image/jpeg …). Stickers rarely used for repairs. */
-function getInboundImageMediaId(message = {}) {
-  if (message.image?.id) return message.image.id;
-  const doc = message.document;
-  if (doc?.mime_type?.toLowerCase().startsWith('image/') && doc.id) return doc.id;
-  if (message.sticker?.id) return message.sticker.id;
-  return null;
-}
-
 // ── Main flow entry ───────────────────────────────────────────
 async function handleRepairFlow(phone, text, msgType, rawMessage, session, intent = null) {
   const lang = session.language || 'english';
@@ -115,6 +108,20 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
 
   // If no active repair flow, start it
   if (!session.currentFlow || session.currentFlow !== 'repair') {
+    let remembered = null;
+    try { remembered = await getCustomerName(phone); } catch (e) {
+      console.warn(`[REPAIR] name lookup failed for ${_rp(phone)}:`, e.message);
+    }
+    if (remembered) {
+      updateSession(phone, {
+        currentFlow: 'repair',
+        flowStep: 'ask_bag_type',
+        collectedData: { name: remembered },
+        reminderSent: false,
+      });
+      console.log(`[REPAIR] Remembered name for ${_rp(phone)} — skipping ask_name`);
+      return sendBagTypeMenu(phone, lang, remembered, true);
+    }
     updateSession(phone, {
       currentFlow: 'repair',
       flowStep: 'ask_name',
@@ -133,23 +140,35 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
       // Reject empty/too-short input, button IDs (user double-tapped a menu
       // button), and __IMAGE__ — re-prompt for a real name instead of
       // storing "btn_repair" as the customer's name.
-      if (!text || text.length < 2 || /^(btn_|bag_|prob_|store_|cat_)/.test(text) || text === '__IMAGE__') {
+      if (!text || text.length < 2 || /^(btn_|bag_|prob_|store_|cat_|combo_)/.test(text) || text === '__IMAGE__') {
         return sendTextMessage(phone, M.get('ask_name', lang));
       }
       const name = text.trim();
       updateSession(phone, { flowStep: 'ask_bag_type', collectedData: { ...data, name } });
+      setCustomerName(phone, name).catch((e) =>
+        console.warn(`[REPAIR] Failed to persist name for ${_rp(phone)}:`, e.message));
       return sendBagTypeMenu(phone, lang, name);
     }
 
-    // ── Step 2: Bag type ──────────────────────────────────────
+    // ── Step 2: Bag type (ask_what is an alias for in-flight combined-list sessions) ──
+    case 'ask_what':
     case 'ask_bag_type': {
       const bagType = resolveBagType(text, lang);
-      if (!bagType) return sendBagTypeMenu(phone, lang, data.name);
+      if (!bagType) {
+        if (looksLikePersonName(text)) {
+          const name = text.trim();
+          updateSession(phone, { collectedData: { ...data, name } });
+          setCustomerName(phone, name).catch((e) =>
+            console.warn(`[REPAIR] Failed to persist name for ${_rp(phone)}:`, e.message));
+          return sendBagTypeMenu(phone, lang, name);
+        }
+        return sendBagTypeMenu(phone, lang, data.name);
+      }
       updateSession(phone, { flowStep: 'ask_problem', collectedData: { ...data, bagType } });
       return sendProblemMenu(phone, lang, bagType);
     }
 
-    // ── Step 3: Problem ───────────────────────────────────────
+    // ── Fallback: problem ("Something else" after bag type) ───
     case 'ask_problem': {
       const problem = resolveProblem(text, lang);
       if (!problem) return sendProblemMenu(phone, lang, data.bagType);
@@ -168,16 +187,11 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
       // Anti-spam throttle: one ticket per phone per TICKET_MIN_INTERVAL_MS.
       // Checked here (the last step) rather than at flow start, so a customer
       // isn't blocked from browsing the flow — only from committing a ticket.
-      const lastTicketAt = _lastTicketAt.get(phone) || 0;
+      const lastTicketAt = getTimestamp('ticket', phone);
       if (TICKET_MIN_INTERVAL_MS > 0 && Date.now() - lastTicketAt < TICKET_MIN_INTERVAL_MS) {
-        const throttleMsg = {
-          english:  `You've just booked a repair with us. If you have another bag to book, please give it a few minutes — or call us and we'll add it for you:\n${defaultCallLine()}`,
-          hindi:    `आपने अभी-अभी एक रिपेयर बुक की है। दूसरा बैग बुक करना हो तो कुछ मिनट रुकें — या हमें कॉल करें, हम जोड़ देंगे:\n${defaultCallLine()}`,
-          gujarati: `તમે હમણાં જ એક રિપેર બુક કરી છે. બીજી બેગ બુક કરવી હોય તો થોડી મિનિટ રાહ જુઓ — અથવા અમને કૉલ કરો, અમે ઉમેરી દઈશું:\n${defaultCallLine()}`,
-        };
         console.warn(`[TICKET] Throttled repeat ticket from ${_rp(phone)}`);
         clearSession(phone);
-        return sendTextMessage(phone, throttleMsg[lang] || throttleMsg.english);
+        return sendTextMessage(phone, M.get('ticket_throttle', lang));
       }
 
       // All four answers collected — create the ticket NOW.
@@ -190,7 +204,7 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
       const storeName = STORE_NAMES[store];
       let ticketId;
       try {
-        ticketId = await generateTicketId();
+        ticketId = await generateTicketId(store);
         await createRepairTicket({
           ticketId,
           customerName:   data.name,
@@ -203,7 +217,8 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
         });
         // Only count a ticket toward the throttle once it actually persisted —
         // a failed creation shouldn't lock the customer out of retrying.
-        _lastTicketAt.set(phone, Date.now());
+        setTimestamp('ticket', phone);
+        setCustomerName(phone, data.name).catch(() => {});
         // Log-safe: don't persist full customer name + phone to log tails.
         console.log(`[TICKET] Created ${ticketId} for ${_rp(phone)}`);
 
@@ -220,20 +235,14 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
         // Notify general owners + any branch-specific owner (Nilesh for Sursagar, etc.)
         const branchSlugForAlerts = branchSlugFromRepairStoreId(store);
         const recipients = getRecipientsForRepair(branchSlugForAlerts);
-        for (const ownerPhone of recipients) {
-          sendTextMessage(ownerPhone, ownerMsg).catch((e) => {
-            console.error(`[OWNER-ALERT] Failed to notify ${_rp(ownerPhone)} about ticket ${ticketId}:`, e.message);
-          });
-        }
+        // Fire-and-forget: the customer must never wait on owner alerting, and
+        // notifyOwners never throws. A 24h-window failure surfaces as
+        // [OWNER-ALERT-LOST] rather than vanishing into a generic catch.
+        notifyOwners(recipients, ownerMsg, { kind: 'new_ticket', ref: ticketId });
       } catch (err) {
         console.error('[TICKET] Creation failed:', err.message);
-        const errMsg = {
-          english: `Sorry, there was a technical issue creating your ticket. Please call us directly:\n${defaultCallLine()}`,
-          hindi:   `माफ़ करें, टिकट बनाने में तकनीकी समस्या हुई। सीधे कॉल करें:\n${defaultCallLine()}`,
-          gujarati:`માફ કરશો, ટિકિટ બનાવવામાં તકનીકી સમસ્યા આવી. કૃપા કરીને સીધો કૉલ કરો:\n${defaultCallLine()}`,
-        };
         clearSession(phone);
-        return sendTextMessage(phone, errMsg[lang] || errMsg.english);
+        return sendTextMessage(phone, M.get('ticket_create_failed', lang));
       }
 
       // Send confirmation
@@ -274,8 +283,8 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
 }
 
 // ── Menu helpers ──────────────────────────────────────────────
-async function sendBagTypeMenu(phone, lang, name) {
-  const prompt = M.fill(M.get('ask_bag_type', lang), { name });
+async function sendBagTypeMenu(phone, lang, name, returning = false) {
+  const prompt = M.fill(M.get(returning ? 'ask_bag_type_returning' : 'ask_bag_type', lang), { name });
   const types = BAG_TYPES[lang] || BAG_TYPES.english;
 
   return sendListMessage(
@@ -306,10 +315,6 @@ async function sendProblemMenu(phone, lang, bagType) {
   );
 }
 
-/**
- * @param {'ok'|'failed'} photoStatus  'ok' shows the ✅ line; 'failed' skips it so
- *   we don't contradict the "photo could not be saved" warning shown right before.
- */
 /**
  * Store picker — the last question before the ticket is created.
  *

@@ -94,7 +94,7 @@ Go to: developers.facebook.com → Your App → WhatsApp → Configuration
 1. Sign up at https://cloudinary.com (free forever)
 2. Dashboard → Copy Cloud Name, API Key, API Secret → .env
 
-### D. Railway (Hosting — $5/month when live)
+### D. Railway (Hosting — ~$5/month Hobby when live)
 
 ```bash
 npm install -g @railway/cli
@@ -103,24 +103,32 @@ railway init
 railway up
 ```
 
-Then in Railway dashboard → Variables → Add all your .env values.
+Then in Railway dashboard:
+
+* Variables → add all production `.env` values (`NODE_ENV=production`, secrets, template names once Meta approves them).
+* Attach a **volume** at `/data` and set `SESSION_CACHE_PATH`, `DEDUP_CACHE_PATH`, `THROTTLE_CACHE_PATH`, `HEALTH_CACHE_PATH` to files on that volume.
+* One replica only. Point Meta's webhook at `https://YOUR_SERVICE.up.railway.app/webhook`.
+
+See `LAUNCH_CHECKLIST.md` for the full cutover.
 
 \---
 
 ## 📊 Google Sheets Headers
 
-### Tab: repair\_tickets
+### Tab: repair\_tickets (columns A–Y)
 
 ```
-ticket\_id | customer\_name | phone | bag\_type | problem | store | status | before\_photo\_url | after\_photo\_url | created\_at | updated\_at | estimated\_pickup | language | notes
+ticket_id | customer_name | phone | bag_type | problem | store | status | before_photo_url | after_photo_url | created_at | updated_at | estimated_pickup | language | notes | last_reassurance_at | (P reserved — counter in P1) | opted_in | last_status_sent | last_update_sent_at | stop_reason | consecutive_failure_count | picked_up_seen_at | feedback_requested_at | rating | rating_at
 ```
 
-Also add cell **P1** with value `0` — this is the ticket counter.
+Cell **P1** is the ticket counter. Initialise to `0` only when empty — never reset a live sheet. Columns Q–Y are written by the bot. Easiest: `node populate_sheet.js` then `npm run sheet:status-dropdown`.
 
 ### Tab: product\_catalog
 
+Sheet tab still exists (headers below) for completeness. **The Shop flow does not read it** — it deep-links to the live website (`front.chanakyacorporate.com`).
+
 ```
-product\_id | category | brand | name | price\_range | in\_stock | description\_en | description\_hi | description\_gu | image\_url | store\_availability
+product_id | category | brand | name | price_range | in_stock | description_en | description_hi | description_gu | image_url | store_availability
 ```
 
 ### Tab: leads\_corporate
@@ -132,7 +140,7 @@ lead\_id | company\_name | contact\_name | phone | product\_type | quantity | bu
 ### Tab: analytics\_log
 
 ```
-timestamp | phone | language | intent | customer\_message | bot\_response\_summary | session\_id | escalated\_to\_human
+timestamp | phone | language | intent | customer_message | bot_response_summary | session_id | escalated_to_human | flow_name | flow_step
 ```
 
 ### Tab: broadcast\_log
@@ -152,7 +160,7 @@ Add a row with `status = pending` and `send\_at` set to a future datetime to tri
 ### Tab: opt\_in\_contacts
 
 ```
-phone | language | joined\_at | opted\_in
+phone | language | joined_at | opted_in | name
 ```
 
 \---
@@ -161,7 +169,7 @@ phone | language | joined\_at | opted\_in
 
 1. Owner opens Google Sheets → `repair\_tickets` tab
 2. Finds the customer's row by ticket ID
-3. Changes value in column G (status) to one of:
+3. Changes column **G** (status) using the **dropdown only**:
 
    * `Bag Received`
    * `Inspection Done`
@@ -170,10 +178,9 @@ phone | language | joined\_at | opted\_in
    * `Ready for Pickup`
    * `Picked Up`
    * `Cannot Repair`
-4. **Also updates column K (updated\_at)** to current datetime — this is what triggers the notification
-5. Within 30 minutes, the cron job polls and sends the customer a WhatsApp update automatically
+4. Within **15 minutes** (during 10:00–19:00 IST), if the customer opted in **and** `REPAIR_UPDATE_TEMPLATE_*` is set to approved Meta names, they get a WhatsApp Utility template. Otherwise they can still *Track My Repair* for free.
 
-**For "Ready for Pickup"**: paste the after-photo Cloudinary URL in column I (after\_photo\_url) — the bot will send this image to the customer.
+**Do not type a custom status.** Use the column G dropdown (`npm run sheet:status-dropdown`). After-photos (column I) are for staff; they are not auto-sent as a WhatsApp image.
 
 \---
 
@@ -204,14 +211,14 @@ After setup, test these flows on WhatsApp:
 
 |Test|What to send|Expected result|
 |-|-|-|
-|Welcome|"hi"|Main menu with buttons|
-|Hindi|"namaste"|Menu in Hindi|
-|Gujarati|"kem cho"|Menu in Gujarati|
+|Welcome|"hi"|Language picker (first time), then main menu|
+|Shop|Tap "Shop"|Category list → website link|
 |Repair|Tap "Repair My Bag"|Starts repair flow|
-|Photo|Send image in repair flow|Uploads to Cloudinary|
-|Track|"TRACK CHA-2026-0001"|Shows ticket status|
+|Photo|Send image after the ticket exists|Uploads to Cloudinary|
+|Track|"TRACK CHA-R-2026-0001"|Shows ticket status|
 |Store|Tap "Store Locations"|Two location pins|
 |Corporate|Tap "Bulk / Corporate"|Lead capture flow|
+|Language|Type "language"|Picker again|
 |Fallback|Send "asdfghjkl" 3x|Offers human contact|
 
 \---
@@ -240,13 +247,15 @@ src/
 │   ├── sessionStore.js   ← In-memory session management
 │   ├── languageDetect.js ← English / Hindi / Gujarati detection
 │   ├── intentDetect.js   ← Maps messages to intents
-│   └── ticketId.js       ← CHA-YYYY-NNNN generator
+│   └── ticketId.js       ← CHA-R/S-YYYY-NNNN generator
 ├── messages/
 │   └── index.js          ← All message strings (3 languages)
 └── jobs/
-    ├── statusPoller.js   ← Checks for status changes every 30 min
+    ├── statusPoller.js   ← Status Utility templates every 15 min (column G)
     ├── broadcastRunner.js← Runs broadcast queue every hour
-    └── pickupReminder.js ← 7-day uncollected bag reminders
+    ├── pickupReminder.js ← 7-day uncollected bag reminders (off by default)
+    ├── feedbackRequest.js← Post-pickup rating templates
+    └── healthCheck.js    ← Meta + Sheets probe; persists to data/
 ```
 
 \---
@@ -255,12 +264,14 @@ src/
 
 |Service|Cost|
 |-|-|
-|Railway Hobby|\~₹420/month|
-|Meta API (customer-initiated chats)|₹0 FREE|
-|Meta API (status update messages)|\~₹0.115/message|
-|Cloudinary|₹0 (free tier)|
-|Google Sheets|₹0 (free)|
-|**Total (typical small volume)**|**\~₹600–900/month**|
+|Railway Hobby|\~₹420–670/month (volume + always-on RAM; $5 credit)|
+|Meta (until 30 Sep 2026, customer-initiated chats)|₹0|
+|Meta Utility templates (status / feedback, out of window)|\~₹0.115/message|
+|Meta Marketing templates|\~₹0.8631/message|
+|Meta (from 1 Oct 2026, every outbound service message)|Utility rate — confirm card 1 Sep 2026|
+|Cloudinary|₹0 (free tier, 25 credits/mo)|
+|Google Sheets|₹0 (free; 60 writes/min/user)|
+|**Typical small volume before 1 Oct**|**\~₹450–900/month**|
 
 \---
 
@@ -291,6 +302,8 @@ src/
 
 **Status updates not sending?**
 
-* Make sure column K (updated\_at) is updated when you change status
-* Cron runs every 30 minutes — max 30 min delay
+* Customer must have tapped "Yes, update me" after booking
+* `REPAIR_UPDATE_TEMPLATE_EN/HI/GU` must be set to **approved** Meta template names
+* Quiet hours are 10:00–19:00 IST; cron polls every 15 minutes on column G
+* Staff must use the column G dropdown, not free-typed wording
 

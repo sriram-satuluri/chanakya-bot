@@ -4,6 +4,7 @@ const { updateSession, clearSession } = require('../utils/sessionStore');
 const { handleEscalation } = require('./escalate');
 const M = require('../messages/index');
 const { tryParseTicketId } = require('../utils/ticketParse');
+const { getRecord, setRecord } = require('../utils/throttleStore');
 const { DEFAULT_REPAIR_TICKET_STATUS, canonicalStatus } = require('../constants/repairTicketStatuses');
 const { defaultCallLine } = require('../constants/publicContact');
 
@@ -107,9 +108,9 @@ async function handleTrackFlow(phone, text, session, intent = null) {
   // Otherwise re-ask for a typed ID.
   clearSession(phone);
   const msg = {
-    english: `That doesn't look like a valid Ticket ID. Format: *CHA-2026-0042* (capital letters aren't required).\n\nPlease try again:`,
-    hindi:   `यह Ticket ID सही नहीं लगती। Format: *CHA-2026-0042* (बड़े-छोटे अक्षर ज़रूरी नहीं)।\n\nदोबारा कोशिश करें:`,
-    gujarati:`આ Ticket ID સાચી નથી લાગતી। Format: *CHA-2026-0042* (મોટા-નાના અક્ષર જરૂરી નથી).\n\nફરીથી પ્રયાસ કરો:`,
+    english: `That doesn't look like a valid Ticket ID. Format: *CHA-R-2026-0042* (Alkapuri) or *CHA-S-2026-0042* (Sursagar) — capital letters aren't required.\n\nPlease try again:`,
+    hindi:   `यह Ticket ID सही नहीं लगती। Format: *CHA-R-2026-0042* (Alkapuri) या *CHA-S-2026-0042* (Sursagar) — बड़े-छोटे अक्षर ज़रूरी नहीं।\n\nदोबारा कोशिश करें:`,
+    gujarati:`આ Ticket ID સાચી નથી લાગતી. Format: *CHA-R-2026-0042* (Alkapuri) અથવા *CHA-S-2026-0042* (Sursagar) — મોટા-નાના અક્ષર જરૂરી નથી.\n\nફરીથી પ્રયાસ કરો:`,
   };
   await sendTextMessage(phone, msg[lang] || msg.english);
   updateSession(phone, { currentFlow: 'track', flowStep: 'ask_ticket_id' });
@@ -168,9 +169,9 @@ async function sendTicketPicker(phone, lang, tickets) {
 /** Shown when no ticket exists under the caller's number. */
 function noTicketsPrompt(lang) {
   const msg = {
-    english: `I couldn't find any repair under this number. If your ticket was booked with a different number, type its ID (e.g. *CHA-2026-0042*). Otherwise tap 🔧 to start a new repair.`,
-    hindi:   `इस नंबर पर कोई रिपेयर नहीं मिली। अगर टिकट किसी और नंबर से बना है तो उसकी ID टाइप करें (जैसे *CHA-2026-0042*)। वरना नई रिपेयर के लिए 🔧 टैप करें।`,
-    gujarati:`આ નંબર પર કોઈ રિપેર મળી નહીં. જો ટિકિટ બીજા નંબરથી બન્યું હોય તો તેની ID ટાઈપ કરો (દા.ત. *CHA-2026-0042*). નહીંતર નવી રિપેર માટે 🔧 ટૅપ કરો.`,
+    english: `I couldn't find any repair under this number. If your ticket was booked with a different number, type its ID (e.g. *CHA-R-2026-0042*). Otherwise tap 🔧 to start a new repair.`,
+    hindi:   `इस नंबर पर कोई रिपेयर नहीं मिली। अगर टिकट किसी और नंबर से बना है तो उसकी ID टाइप करें (जैसे *CHA-R-2026-0042*)। वरना नई रिपेयर के लिए 🔧 टैप करें।`,
+    gujarati:`આ નંબર પર કોઈ રિપેર મળી નહીં. જો ટિકિટ બીજા નંબરથી બન્યું હોય તો તેની ID ટાઈપ કરો (દા.ત. *CHA-R-2026-0042*). નહીંતર નવી રિપેર માટે 🔧 ટૅપ કરો.`,
   };
   return msg[lang] || msg.english;
 }
@@ -192,20 +193,16 @@ function normPhone(v) {
  */
 const CROSS_LOOKUP_MAX = 5;
 const CROSS_LOOKUP_WINDOW_MS = 60 * 60 * 1000;
-const _crossLookups = new Map(); // askerPhone -> { count, resetAt }
-setInterval(() => {
-  const now = Date.now();
-  for (const [p, b] of _crossLookups) if (b.resetAt < now) _crossLookups.delete(p);
-}, 15 * 60 * 1000).unref();
 
 function allowCrossLookup(askerNorm) {
   const now = Date.now();
-  let b = _crossLookups.get(askerNorm);
-  if (!b || b.resetAt < now) {
-    b = { count: 0, resetAt: now + CROSS_LOOKUP_WINDOW_MS };
-    _crossLookups.set(askerNorm, b);
+  let b = getRecord('trackCross', askerNorm);
+  if (!b || typeof b !== 'object' || b.resetAt < now) {
+    b = { count: 0, resetAt: now + CROSS_LOOKUP_WINDOW_MS, at: now };
   }
   b.count++;
+  b.at = now;
+  setRecord('trackCross', askerNorm, b);
   return b.count <= CROSS_LOOKUP_MAX;
 }
 
@@ -230,7 +227,7 @@ async function lookupAndSend(phone, ticketId /* canonical */, lang) {
   //
   // Because ticket IDs are sequential (guessable), cross-phone and not-found
   // lookups are throttled per asking phone so nobody can enumerate
-  // CHA-2026-0001…9999 fishing for hits. Store owners and the ticket's own
+  // CHA-R-2026-0001… fishing for hits. Store owners and the ticket's own
   // phone are never throttled.
   const { getGeneralOwnerPhones, getBranchOwnerPhones } = require('../utils/ownerPhones');
   const ownerAllowlist = new Set([

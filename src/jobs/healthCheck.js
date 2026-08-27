@@ -1,33 +1,66 @@
-const { verifyMetaWhatsAppCredentials, sendTextMessage } = require('../services/whatsapp');
+const fs = require('fs');
+const path = require('path');
+const { verifyMetaWhatsAppCredentials } = require('../services/whatsapp');
 const { readTicketRows } = require('../services/sheets');
 const { getRecipientsForCorporate } = require('../utils/ownerPhones');
+const { notifyOwners } = require('../utils/ownerAlert');
 const { envInt } = require('../utils/env');
 const { formatIST } = require('../utils/istTime');
 
 /**
  * Periodic health check with owner alerting.
  *
- * Until now, logs went to stdout and nowhere else. If the Meta token expired
- * or the Sheets credentials broke at 2am, the first anyone knew was a
- * customer complaining — the bot fails SILENTLY, staying up and answering
- * health checks while being unable to do anything useful.
+ * Probes Meta + Sheets and WhatsApps the owners when one stays broken.
+ * Alerts on the Nth consecutive failure (default 2), and once again on recovery.
  *
- * This probes the two things the bot cannot function without and messages the
- * owners when one stays broken. Deliberately alerts on the SECOND consecutive
- * failure, not the first: a single transient blip at 3am is not worth waking
- * anyone for, but two in a row is a real outage.
- *
- * Recovery is announced too — otherwise the only way to know it's fixed is to
- * notice the absence of further alerts, which nobody does.
+ * Failure counts are written to disk so a redeploy cannot reset the counter
+ * and delay an alert that was already one tick away.
  */
 
 const FAILURES_BEFORE_ALERT = envInt('HEALTH_FAILURES_BEFORE_ALERT', 2, { min: 1 });
 
+function resolvePath() {
+  const explicit = process.env.HEALTH_CACHE_PATH?.trim();
+  if (explicit) return explicit;
+  return path.join(process.cwd(), 'data', 'health_state.json');
+}
+
+function emptyState() {
+  return {
+    meta:   { failures: 0, alerted: false },
+    sheets: { failures: 0, alerted: false },
+  };
+}
+
+function loadState() {
+  try {
+    const raw = JSON.parse(fs.readFileSync(resolvePath(), 'utf8'));
+    const out = emptyState();
+    for (const key of ['meta', 'sheets']) {
+      if (raw && raw[key]) {
+        out[key].failures = Number(raw[key].failures) || 0;
+        out[key].alerted = Boolean(raw[key].alerted);
+      }
+    }
+    return out;
+  } catch {
+    return emptyState();
+  }
+}
+
+function saveState() {
+  try {
+    const fp = resolvePath();
+    const dir = path.dirname(fp);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(fp, JSON.stringify(state, null, 2), 'utf8');
+  } catch (e) {
+    console.warn('[HEALTH] persist failed:', e.message);
+  }
+}
+
 /** subsystem -> { failures, alerted } */
-const state = {
-  meta:   { failures: 0, alerted: false },
-  sheets: { failures: 0, alerted: false },
-};
+const state = loadState();
 
 const LABELS = {
   meta:   'WhatsApp / Meta API',
@@ -48,22 +81,14 @@ async function probeMeta() {
 }
 
 async function probeSheets() {
-  // Cheapest meaningful read — also exercises auth, which is what usually breaks.
   await readTicketRows();
 }
 
-async function alertOwners(text) {
-  const recipients = getRecipientsForCorporate();
-  if (!recipients.length) {
-    console.warn('[HEALTH] No owner numbers configured — alert not sent.');
-    return;
-  }
-  for (const p of recipients) {
-    // Deliberately NOT .catch(() => {}) silently — if we can't even alert,
-    // that itself is worth a log line.
-    await sendTextMessage(p, text).catch((e) =>
-      console.error('[HEALTH] Failed to alert owner:', e.message));
-  }
+async function alertOwners(text, kind) {
+  // A health alert that itself fails silently is the worst case in the system —
+  // the bot is down AND nobody is told. notifyOwners logs [OWNER-ALERT-LOST]
+  // when the 24h window is the reason.
+  await notifyOwners(getRecipientsForCorporate(), text, { kind });
 }
 
 async function checkOne(key, probe) {
@@ -71,29 +96,32 @@ async function checkOne(key, probe) {
   try {
     await probe();
     if (s.alerted) {
-      // Recovered — say so, then reset.
       console.log(`[HEALTH] ${LABELS[key]} recovered.`);
       await alertOwners(
         `✅ *Chanakya bot recovered*\n\n${LABELS[key]} is responding again as of ${formatIST(new Date())}.\n\n`
         + `_Normal service has resumed._`,
+        `health_recovered_${key}`,
       );
     }
     s.failures = 0;
     s.alerted = false;
+    saveState();
     return true;
   } catch (e) {
     s.failures += 1;
     console.error(`[HEALTH] ${LABELS[key]} check FAILED (${s.failures}x): ${e.message}`);
     if (s.failures >= FAILURES_BEFORE_ALERT && !s.alerted) {
-      s.alerted = true; // one alert per outage, not one per tick
+      s.alerted = true;
       await alertOwners(
         `🚨 *Chanakya bot is not working*\n\n`
         + `*${LABELS[key]}* has failed ${s.failures} checks in a row.\n\n`
         + `_Error:_ ${String(e.message).slice(0, 200)}\n\n`
         + `${HINTS[key]}\n\n`
         + `_Detected ${formatIST(new Date())}. You will get one more message when it recovers._`,
+        `health_down_${key}`,
       );
     }
+    saveState();
     return false;
   }
 }
@@ -104,4 +132,4 @@ async function runHealthCheck() {
   if (metaOk && sheetsOk) console.log('[HEALTH] OK — Meta and Sheets both responding.');
 }
 
-module.exports = { runHealthCheck, _state: state };
+module.exports = { runHealthCheck };

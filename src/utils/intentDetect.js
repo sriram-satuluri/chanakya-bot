@@ -12,13 +12,11 @@ const intentMap = [
       'shuruaat', 'home', 'help'],
     buttonIds: ['btn_main_menu', 'btn_back', 'btn_start_over'],
   },
-  {
-    intent: 'repair',
-    keywords: ['repair', 'fix', 'toot', 'kharab', 'broken', 'damage', 'sudharo',
-      'mend', 'zip', 'wheel', 'handle', 'lock', 'stitching', 'cleaning',
-      'rampair', 'sudhar', 'tuti', 'bigdi', 'repar'],
-    buttonIds: ['btn_repair', 'flow_repair'],
-  },
+  /* track_repair MUST be checked before repair. "repair status" contains
+   * "repair", so with repair first a customer asking where their bag is was
+   * dropped into a brand-new booking and asked for their name. Nothing in
+   * track_repair's keywords matches a plain repair request, so putting it
+   * first is safe in the other direction. */
   {
     intent: 'track_repair',
     keywords: ['track', 'status', 'meri bag', 'bag kahan', 'kitna time',
@@ -26,6 +24,13 @@ const intentMap = [
     buttonIds: ['btn_track', 'flow_track'],
     /* Full message or embedded CHA-* / track CHA-* / lowercase / unicode dashes */
     matcher: (t) => isTicketLikeMessage(t),
+  },
+  {
+    intent: 'repair',
+    keywords: ['repair', 'fix', 'toot', 'kharab', 'broken', 'damage', 'sudharo',
+      'mend', 'zip', 'wheel', 'handle', 'lock', 'stitching', 'cleaning',
+      'rampair', 'sudhar', 'tuti', 'bigdi', 'repar'],
+    buttonIds: ['btn_repair', 'flow_repair'],
   },
   {
     intent: 'shop_catalog',
@@ -36,24 +41,33 @@ const intentMap = [
   },
   {
     intent: 'store_location',
+    /* 'shop' deliberately absent: shop_catalog claims it first, so listing it
+     * here was dead weight that only looked like it did something. */
     keywords: ['store', 'location', 'address', 'kahan hai', 'kahan hain',
-      'shop', 'dukan', 'where', 'direction', 'map', 'alkapuri', 'sursagar',
+      'dukan', 'where', 'direction', 'map', 'alkapuri', 'sursagar',
       'sthaan', 'jaga', 'race course', 'pratap', 'directions'],
     buttonIds: ['btn_location', 'btn_stores'],
   },
   {
     intent: 'corporate',
+    /* NOT bare 'custom': suffixes are allowed (so 'repair' reaches
+     * "repairing"), which made 'custom' reach "CUSTOMer care" and drop people
+     * asking for support into a bulk-order form. These stems mean what they
+     * say; "custom printing" is also already covered by 'printing'. */
     keywords: ['bulk', 'corporate', 'wholesale', 'company', 'school', 'office',
       'quantity', 'units', 'bulk order', 'badi quantity', 'printing',
-      'branding', 'custom', 'gift', 'large order'],
+      'branding', 'customis', 'customiz', 'custom print', 'custom bag',
+      'gift', 'large order'],
     buttonIds: ['btn_corporate', 'flow_corporate'],
   },
   {
     intent: 'escalate',
     // Note: Avoid generic words like problem/issue/complaint — customers use those mid-repair
     // (“Zip / Chain Issue”) and routing would escalate before the repair flow finishes.
+    /* 'help me' lives in HANDOFF_EXACT instead: main_menu's 'help' keyword is
+     * checked first and would always claim it here. */
     keywords: ['human', 'agent', 'call me', 'person', 'staff', 'baat karo',
-      'insaan', 'manush', 'talk', 'phone karo', 'not working', 'help me',
+      'insaan', 'manush', 'talk', 'phone karo', 'not working',
       'complaint desk', 'customer care'],
     buttonIds: ['btn_escalate', 'btn_human'],
   },
@@ -83,13 +97,23 @@ function detectIntent(text, session) {
     ? () => updateSession(session.phone, { fallbackCount: 0 })
     : () => {};
 
-  if (/^bag_\d+$/i.test(text) || /^prob_\d+$/i.test(text)) {
+  if (/^bag_\d+$/i.test(text) || /^prob_\d+$/i.test(text)
+      || /^combo_other$/i.test(text) || /^combo_\d+_\d+$/i.test(text)) {
     if (flow === 'repair') {
       resetFb();
       return '__continue_flow__';
     }
   }
-  if (/^cat_\d+$/i.test(text) && flow === 'catalog') {
+  if ((/^cat_\d+$/i.test(text) || /^cat_all$/i.test(text)) && flow === 'catalog') {
+    resetFb();
+    return '__continue_flow__';
+  }
+  /* The repair-updates yes/no buttons. Their flow consumes them correctly, but
+   * without this they resolved to 'fallback' on the way past and quietly
+   * incremented fallbackCount — so a customer answering the question properly
+   * was being counted as failing to understand the bot. That matters now the
+   * escalation offer triggers after two unresolved messages, not three. */
+  if (/^ru_(yes|no)$/i.test(text) && flow === 'repair_updates') {
     resetFb();
     return '__continue_flow__';
   }
@@ -140,6 +164,9 @@ function detectIntent(text, session) {
     'talk to a person', 'talk to person', 'talk to someone', 'talk to a human',
     'speak to someone', 'speak to a person', 'talk to team', 'talk to the team',
     'real person', 'human please', 'agent please', 'connect me', 'call me back',
+    // Matched here rather than as an escalate keyword — main_menu's 'help'
+    // is checked earlier and would otherwise swallow it into the menu.
+    'help me', 'please help me', 'i need help', 'need help',
     // Hindi — Devanagari
     'किसी से बात कराओ', 'किसी से बात करनी है', 'इंसान से बात', 'व्यक्ति से बात',
     'स्टाफ से बात', 'टीम से बात', 'मुझे बात करनी है', 'किसी से बात',
@@ -191,6 +218,32 @@ function detectIntent(text, session) {
   //     here because escalate's buttonIds already cover it, but the principle holds).
   const isButtonId = /^(btn_|flow_)[a-z_]+$/i.test(text);
 
+  /**
+   * Does `lower` contain keyword `k` as a WORD, not as a random substring?
+   *
+   * The old rule applied a word boundary only to keywords of 3 characters or
+   * fewer and used a bare `.includes()` for everything else. That produced
+   * collisions that were invisible until someone typed the obvious thing:
+   *
+   *   "corporate"     contains "rate"   -> opened the shop catalogue
+   *   "customer care" contains "custom" -> opened the bulk-order lead form
+   *
+   * The fix is a boundary at the START only. Keywords here are deliberately
+   * stems — 'repair' must still match "repairing", 'direction' must match
+   * "directions", 'condition' must match "conditions" — so trailing letters
+   * stay allowed. What is no longer allowed is a keyword beginning in the
+   * middle of a longer word, which is where every one of these bugs came from.
+   *
+   * Non-Latin keywords (Devanagari / Gujarati) work unchanged: their
+   * neighbouring characters are outside [a-z], so both boundaries hold.
+   */
+  function keywordMatches(lower, k) {
+    const kw = String(k).toLowerCase().trim();
+    if (!kw) return false;
+    const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(?:^|[^a-z])${escaped}[a-z]*(?:$|[^a-z])`).test(lower);
+  }
+
   for (const { intent, keywords, buttonIds, pattern, matcher } of intentMap) {
     // Check exact button IDs first (most reliable)
     if (buttonIds?.includes(text)) {
@@ -215,8 +268,9 @@ function detectIntent(text, session) {
       return intent;
     }
 
-    // Check keywords
-    if (keywords.some(k => lower.includes(k))) {
+    // Check keywords. Short ones (hi, hey) must be whole words — otherwise
+    // "hi" matches "stitching" / "something" and dumps a booking into the menu.
+    if (keywords?.some(k => keywordMatches(lower, k))) {
       if (session?.phone) updateSession(session.phone, { fallbackCount: 0 });
       return intent;
     }
@@ -230,4 +284,9 @@ function detectIntent(text, session) {
   return 'fallback';
 }
 
-module.exports = { detectIntent };
+module.exports = {
+  detectIntent,
+  /** Exported so the shadowing test reads the REAL keyword lists rather than a
+   *  copy that would silently drift out of date. Treat as read-only. */
+  intentMap,
+};

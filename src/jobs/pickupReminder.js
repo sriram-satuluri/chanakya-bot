@@ -1,11 +1,19 @@
 const { getUncollectedTickets } = require('../services/sheets');
 const { sendTextMessage, isLikelySendablePhone } = require('../services/whatsapp');
+const { envBool } = require('../utils/env');
+const { withinSendWindow } = require('./statusPoller');
 const M = require('../messages/index');
 
-/** Opt-in flag: 7-day pickup reminders cost money (out-of-window template). Off by default. */
+/**
+ * 7-day "please collect your bag" reminder. Off by default.
+ *
+ * Still free-form (sendTextMessage). That only delivers inside WhatsApp's 24h
+ * customer-service window, which a bag sitting for 7 days almost never has.
+ * Do not enable until a Utility template exists and this job is switched to
+ * sendTemplateMessage. Until then, turning this on just produces 131047 logs.
+ */
 function pickupReminderEnabled() {
-  const v = String(process.env.PICKUP_REMINDER_ENABLED || '').trim().toLowerCase();
-  return v === '1' || v === 'true' || v === 'yes';
+  return envBool('PICKUP_REMINDER_ENABLED', false);
 }
 
 async function sendPickupReminders() {
@@ -13,6 +21,13 @@ async function sendPickupReminders() {
     console.log('[REMINDER] Disabled (set PICKUP_REMINDER_ENABLED=true to turn on) — skipping.');
     return;
   }
+  if (!withinSendWindow()) {
+    console.log('[REMINDER] Outside send window — skipping.');
+    return;
+  }
+  console.warn(
+    '[REMINDER] Sending free-form text. Bags uncollected for 7 days are almost always outside the 24h window — expect Meta 131047 until this job uses an approved Utility template.',
+  );
   let tickets;
   try {
     tickets = await getUncollectedTickets(7); // 7 days threshold

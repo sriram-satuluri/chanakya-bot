@@ -68,10 +68,11 @@ function terminalStopReason(status) {
   return null;
 }
 
+// normalizeStatusKey stays private — it exists to build _CANONICAL_BY_KEY and
+// back canonicalStatus(), which is the function callers actually want.
 module.exports = {
   REPAIR_TICKET_STATUSES,
   DEFAULT_REPAIR_TICKET_STATUS,
-  normalizeStatusKey,
   canonicalStatus,
   terminalStopReason,
 };
