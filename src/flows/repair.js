@@ -184,9 +184,47 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
       const store = resolveStore(text);
       if (!store) return sendStoreMenu(phone, lang);
 
+      // In-flight lock. The throttle below is a check-then-act pair with two
+      // awaits between the read and the write, so two taps landing in the same
+      // window BOTH passed it and BOTH created a ticket — different ids, two
+      // owner alerts, two rows that do not look like duplicates. Double-tapping
+      // a WhatsApp button is completely ordinary, so this was not theoretical.
+      //
+      // Synchronous claim, so nothing can interleave between test and set.
+      // In-process is sufficient: the service is pinned to one replica
+      // (railway.json numReplicas: 1), the same assumption utils/ticketId.js
+      // already makes for the counter mutex.
+      if (_ticketInFlight.has(phone)) {
+        console.warn(`[TICKET] Concurrent create ignored for ${_rp(phone)} — one already in flight`);
+        return; // the in-flight request is about to reply; a second reply would confuse
+      }
+      _ticketInFlight.add(phone);
+      try {
+        return await createTicketForStore(phone, store, data, lang);
+      } finally {
+        _ticketInFlight.delete(phone);
+      }
+    }
+
+    default:
+      clearSession(phone);
+      return showMainMenu(phone, lang);
+  }
+}
+
+/**
+ * Phones with a ticket-creation request currently between the throttle check
+ * and the sheet write. Held for milliseconds; the finally always clears it.
+ */
+const _ticketInFlight = new Set();
+
+/** The body of the final booking step, extracted so the lock above can wrap it. */
+async function createTicketForStore(phone, store, data, lang) {
       // Anti-spam throttle: one ticket per phone per TICKET_MIN_INTERVAL_MS.
       // Checked here (the last step) rather than at flow start, so a customer
       // isn't blocked from browsing the flow — only from committing a ticket.
+      // This remains the SLOW guard (minutes); the in-flight lock above is the
+      // fast one (milliseconds). They cover different attacks.
       const lastTicketAt = getTimestamp('ticket', phone);
       if (TICKET_MIN_INTERVAL_MS > 0 && Date.now() - lastTicketAt < TICKET_MIN_INTERVAL_MS) {
         console.warn(`[TICKET] Throttled repeat ticket from ${_rp(phone)}`);
@@ -274,12 +312,6 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
       // answer, so it replaces the old "what next?" buttons rather than
       // adding another message — the answer buttons double as the exit.
       return askRepairUpdatesOptIn(phone, lang, ticketId);
-    }
-
-    default:
-      clearSession(phone);
-      return showMainMenu(phone, lang);
-  }
 }
 
 // ── Menu helpers ──────────────────────────────────────────────

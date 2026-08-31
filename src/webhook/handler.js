@@ -5,6 +5,8 @@ const { detectIntent } = require('../utils/intentDetect');
 const { logAnalytics, setCustomerLanguage, hasOpenOptedInTicket } = require('../services/sheets');
 const { markAsRead } = require('../services/whatsapp');
 const { claimMessage } = require('../utils/dedupStore');
+const { getRecord, setRecord } = require('../utils/throttleStore');
+const { envInt } = require('../utils/env');
 const { resolveLanguage, setCachedLanguage } = require('../utils/languagePref');
 
 /* ── Log-safety helpers ──────────────────────────────────────────────
@@ -115,6 +117,15 @@ async function processMessage(message, contact) {
     return;
   }
   const msgType = message.type;
+
+  // Per-phone flood control. The HTTP rate limiter in index.js is per-IP, and
+  // EVERY inbound webhook arrives from Meta's IPs — so it does nothing at all
+  // against one abusive customer. Without this, a single number could send
+  // hundreds of messages a minute, earn a reply to each, and push the global
+  // outbound circuit breaker (utils/sendGuard.js, 240/min) over its cap —
+  // at which point every OTHER customer's reply and every owner alert is
+  // dropped too. One abuser must not be able to take the bot down for the shop.
+  if (!allowInboundFromPhone(phone)) return;
 
   // Send a read receipt (blue ticks) so the customer sees the business is
   // responsive. Free, not billed, not counted by the circuit breaker.
@@ -273,6 +284,55 @@ const LANGUAGE_GATE_ESCAPE_INTENTS = new Set([
 
 /** How many times the picker may go unanswered before we stop asking. */
 const MAX_LANGUAGE_PICK_ASKS = 2;
+
+/**
+ * Per-phone inbound flood control.
+ *
+ * Deliberately generous: a real person tapping through the booking flow sends
+ * roughly one message per action, and even an enthusiastic customer correcting
+ * themselves stays far below this. Anything above it is a script.
+ *
+ * Backed by utils/throttleStore.js, so the window survives a redeploy — a
+ * spammer must not get a fresh allowance every time we push.
+ */
+const INBOUND_MAX_PER_MIN = envInt('INBOUND_MAX_PER_PHONE_PER_MIN', 20, { min: 1 });
+const INBOUND_WINDOW_MS = 60 * 1000;
+
+/**
+ * @returns {boolean} true to process this message, false to drop it
+ *
+ * Over-limit messages are dropped SILENTLY. Replying "you are sending too
+ * much" would itself be an outbound message per inbound one, which is exactly
+ * the cost and spam-signal we are trying to avoid — and a script does not read
+ * it anyway. The customer's messages still arrive at the shop's WhatsApp; only
+ * the automated reply stops. We log once per window so the shop can see it.
+ */
+function allowInboundFromPhone(phone) {
+  if (INBOUND_MAX_PER_MIN <= 0) return true;
+  const now = Date.now();
+  let b = getRecord('inbound', phone);
+  if (!b || typeof b !== 'object' || !b.resetAt || b.resetAt < now) {
+    b = { count: 0, resetAt: now + INBOUND_WINDOW_MS, at: now, warned: false };
+  }
+  b.count += 1;
+  b.at = now;
+
+  if (b.count > INBOUND_MAX_PER_MIN) {
+    if (!b.warned) {
+      b.warned = true;
+      console.warn(
+        `[FLOOD] ${redactPhone(phone)} exceeded ${INBOUND_MAX_PER_MIN} messages/min — `
+        + `dropping further replies until the window resets. The bot stays available `
+        + `to everyone else; this cap exists so one number cannot exhaust the global `
+        + `outbound budget.`,
+      );
+    }
+    setRecord('inbound', phone, b);
+    return false;
+  }
+  setRecord('inbound', phone, b);
+  return true;
+}
 
 /**
  * Is the language picker currently outstanding for this customer?

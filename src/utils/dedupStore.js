@@ -24,6 +24,7 @@
 const fs = require('fs');
 const path = require('path');
 const { envInt } = require('./env');
+const { statePath } = require('./dataDir');
 
 /**
  * How long a message id is remembered.
@@ -52,9 +53,7 @@ const MAX_ENTRIES = envInt('DEDUP_MAX_ENTRIES', 20000, { min: 100 });
 const FLUSH_DEBOUNCE_MS = 2000;
 
 function resolvePath() {
-  const explicit = process.env.DEDUP_CACHE_PATH?.trim();
-  if (explicit) return explicit;
-  return path.join(process.cwd(), 'data', 'processed_messages.json');
+  return statePath('dedup');
 }
 
 /** @type {Map<string, number>|null} messageId -> epoch ms first seen */

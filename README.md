@@ -5,42 +5,109 @@ Trilingual (English / Hindi / Gujarati), repair ticketing, Google Sheets backend
 
 \---
 
-## ⚡ Quick Start (Testing — Free, No Subscriptions Needed)
+## 🚀 Deploying to Railway (this is how the bot actually runs)
 
-### Step 1 — Install dependencies
+Railway is where this runs in production. It gives you a permanent HTTPS URL,
+so Meta always knows where to reach the bot.
+
+### Step 1 — Create the service
+
+Connect this GitHub repo in Railway. `railway.json` already pins the important
+parts: one replica, `/health` as the healthcheck, restart-on-failure.
+
+> **One replica is not a cost decision — it is a correctness one.** Sessions,
+> the webhook dedup store, per-phone throttles and the ticket-ID counter all
+> live in this process. Two instances would hand out duplicate ticket IDs.
+
+### Step 2 — Add a Volume, then set `DATA_DIR` ⚠️ required
+
+Four files must survive a redeploy:
+
+| File | If lost |
+| --- | --- |
+| `processed_messages.json` | Meta retries (up to 7 days) get re-processed → **duplicate tickets** |
+| `sessions.json` | Every in-progress booking dies mid-conversation |
+| `throttles.json` | Anti-spam cooldowns reset on every deploy |
+| `health_state.json` | Failure counters reset, delaying the owner alert |
+
+Add a Railway **Volume**, then set `DATA_DIR` to its mount path (e.g. `/data`).
+
+**With `NODE_ENV=production` the bot refuses to start if `DATA_DIR` is unset or
+unwritable.** That is deliberate: booting without it silently destroys
+bookings on every deploy, and a bot that will not start is easier to notice
+than one quietly losing customers.
+
+### Step 3 — Set the environment variables
+
+Copy every variable from `.env.example` into Railway's Variables tab. Set
+`NODE_ENV=production`. Production refuses to boot without all of:
+
+`META_ACCESS_TOKEN` · `META_PHONE_NUMBER_ID` · `WEBHOOK_VERIFY_TOKEN` ·
+`META_APP_SECRET` · `GOOGLE_SHEETS_ID` · `GOOGLE_SERVICE_ACCOUNT_EMAIL` ·
+`GOOGLE_PRIVATE_KEY` · `CLOUDINARY_CLOUD_NAME` · `CLOUDINARY_API_KEY` ·
+`CLOUDINARY_API_SECRET` · `DATA_DIR`
+
+Boot also makes a live check against Meta **and** a live read of the
+spreadsheet, so a wrong key fails at deploy time rather than on your first
+real customer.
+
+### Step 4 — Point Meta at the Railway URL
+
+developers.facebook.com → Your App → WhatsApp → Configuration
+
+* Webhook URL: `https://YOUR-APP.up.railway.app/webhook`
+* Verify Token: same value as `WEBHOOK_VERIFY_TOKEN`
+* Subscribe to the `messages` field
+
+### Step 5 — Confirm it is up
+
+```bash
+curl https://YOUR-APP.up.railway.app/health
+```
+
+Then message the business number from your phone and watch the deploy logs for
+`[WEBHOOK] inbound`.
+
+\---
+
+## 🛠️ Local development only
+
+You do **not** need any of this to run in production — it is for working on the
+bot on your own machine.
 
 ```bash
 npm install
+cp .env.example .env    # then fill in the values
+npm test                # full suite, no network calls
+npm run dev             # nodemon on port 3000
 ```
 
-### Step 2 — Create your .env file
+Locally `DATA_DIR` is optional and falls back to `./data`, with a warning.
+Only production treats a missing volume as fatal.
+
+### Exposing localhost to Meta (ngrok)
+
+Meta cannot reach `localhost`, so to test real WhatsApp messages against your
+laptop you need a public HTTPS tunnel. **This is a local-development tool only
+— production uses the Railway domain from the section above.**
 
 ```bash
-cp .env.example .env
-```
-
-Then fill in the values (see Setup Guide below).
-
-### Step 3 — Start the server
-
-```bash
-npm run dev
-```
-
-### Step 4 — Expose locally using ngrok (for testing)
-
-```bash
-# Install ngrok: https://ngrok.com/download
+# https://ngrok.com/download
 ngrok http 3000
-# Copy the https URL — e.g. https://abc123.ngrok.io
 ```
 
-### Step 5 — Set webhook in Meta
+Point Meta's webhook at the `https://…ngrok-free.dev/webhook` URL it prints.
+Remember to point it back at Railway when you are done, or production traffic
+will keep arriving at a laptop that is no longer running.
 
-Go to: developers.facebook.com → Your App → WhatsApp → Configuration
+### Useful checks
 
-* Webhook URL: `https://abc123.ngrok.io/webhook`
-* Verify Token: same as WEBHOOK\_VERIFY\_TOKEN in your .env
+```bash
+npm run verify:meta     # is the WhatsApp token valid?
+npm run verify:sheet    # can the service account read the sheet? (read-only)
+npm run funnel          # where do customers drop out of the booking flow?
+npm run sheet:orphans   # tickets with no photo / stuck states
+```
 
 \---
 
@@ -61,7 +128,7 @@ Go to: developers.facebook.com → Your App → WhatsApp → Configuration
 5. Note your **App Secret** (App Settings → Basic)
 6. In WhatsApp → Configuration:
 
-   * Set Webhook URL → your Railway or ngrok URL + `/webhook`
+   * Set Webhook URL → your Railway URL + `/webhook` (an ngrok URL only when testing locally)
    * Set Verify Token → same as WEBHOOK\_VERIFY\_TOKEN in .env
    * Subscribe to: `messages` field
 
@@ -106,7 +173,7 @@ railway up
 Then in Railway dashboard:
 
 * Variables → add all production `.env` values (`NODE_ENV=production`, secrets, template names once Meta approves them).
-* Attach a **volume** at `/data` and set `SESSION_CACHE_PATH`, `DEDUP_CACHE_PATH`, `THROTTLE_CACHE_PATH`, `HEALTH_CACHE_PATH` to files on that volume.
+* Attach a **volume** and set a single `DATA_DIR` to its mount path (e.g. `/data`). The bot will not boot in production without it — see "Deploying to Railway" at the top.
 * One replica only. Point Meta's webhook at `https://YOUR_SERVICE.up.railway.app/webhook`.
 
 See `LAUNCH_CHECKLIST.md` for the full cutover.

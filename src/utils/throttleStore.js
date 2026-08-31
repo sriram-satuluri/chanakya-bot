@@ -13,14 +13,13 @@
 
 const fs = require('fs');
 const path = require('path');
+const { statePath } = require('./dataDir');
 
 const FLUSH_DEBOUNCE_MS = 1000;
 const MAX_AGE_MS = 48 * 60 * 60 * 1000;
 
 function resolvePath() {
-  const explicit = process.env.THROTTLE_CACHE_PATH?.trim();
-  if (explicit) return explicit;
-  return path.join(process.cwd(), 'data', 'throttles.json');
+  return statePath('throttles');
 }
 
 function key(kind, phone) {

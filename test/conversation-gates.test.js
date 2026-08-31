@@ -22,10 +22,10 @@ const path = require('node:path');
 const fs = require('node:fs');
 
 // Isolate all on-disk state before anything loads.
+// Uses the modern single DATA_DIR. test/integration.test.js deliberately still
+// uses the legacy per-file vars, so both resolution paths stay covered.
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'chanakya-gates-'));
-process.env.SESSION_CACHE_PATH = path.join(TMP, 'sessions.json');
-process.env.DEDUP_CACHE_PATH = path.join(TMP, 'dedup.json');
-process.env.THROTTLE_CACHE_PATH = path.join(TMP, 'throttles.json');
+process.env.DATA_DIR = TMP;
 process.env.SKIP_WEBHOOK_SIGNATURE = '1';
 process.env.NODE_ENV = 'test';
 process.env.OWNER_PHONE_GATETEST = '919000000001';

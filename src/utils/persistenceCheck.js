@@ -24,40 +24,17 @@
 
 const fs = require('fs');
 const path = require('path');
+const { allStatePaths, dataDir, dataDirIsExplicit } = require('./dataDir');
 
 const MARKER_NAME = '.persistence_marker.json';
 
 /**
- * Files that must survive a redeploy. Add future ones here — the check is
- * written against this list, not against any single file.
+ * Files that must survive a redeploy. The canonical list lives in
+ * utils/dataDir.js so the stores and this check can never disagree about
+ * where a file is supposed to be.
  */
 function persistentPaths() {
-  return [
-    {
-      label: 'webhook dedup store',
-      why: 'prevents duplicate repair tickets when Meta retries a webhook after a restart',
-      file: process.env.DEDUP_CACHE_PATH?.trim()
-        || path.join(process.cwd(), 'data', 'processed_messages.json'),
-    },
-    {
-      label: 'conversation sessions',
-      why: 'keeps in-progress bookings alive across a redeploy instead of silently losing them',
-      file: process.env.SESSION_CACHE_PATH?.trim()
-        || path.join(process.cwd(), 'data', 'sessions.json'),
-    },
-    {
-      label: 'per-phone throttles',
-      why: 'ticket / lead / handoff cooldowns must survive a redeploy or a spammer gets a free window',
-      file: process.env.THROTTLE_CACHE_PATH?.trim()
-        || path.join(process.cwd(), 'data', 'throttles.json'),
-    },
-    {
-      label: 'health-check counters',
-      why: 'a redeploy must not reset consecutive Meta/Sheets failures and delay the owner alert',
-      file: process.env.HEALTH_CACHE_PATH?.trim()
-        || path.join(process.cwd(), 'data', 'health_state.json'),
-    },
-  ];
+  return allStatePaths();
 }
 
 function banner(lines) {
@@ -117,9 +94,62 @@ function humanAge(iso) {
  * Run the check and log the outcome. Never throws, never blocks startup.
  * @returns {{ok: boolean, warnings: string[]}}
  */
+/**
+ * In production, state that must survive a redeploy has to live on a mounted
+ * volume — and the operator has to have said where. Booting without that is
+ * not a degraded mode worth having: it silently drops in-progress bookings on
+ * every deploy and re-opens the duplicate-ticket window, with no error anyone
+ * would notice until a customer complains.
+ *
+ * So production refuses to start, exactly as it already does for a missing
+ * Meta or Sheets credential. Development and staging keep warning only —
+ * requiring a volume to run the bot on a laptop would be absurd.
+ *
+ * @returns {string[]} reasons the boot must be aborted; empty means proceed
+ */
+function fatalPersistenceProblems() {
+  if (process.env.NODE_ENV !== 'production') return [];
+  const reasons = [];
+
+  if (!dataDirIsExplicit()) {
+    reasons.push(
+      'DATA_DIR is not set. In production it must point at a mounted volume '
+      + '(on Railway: add a Volume, then set DATA_DIR to its mount path).',
+    );
+    return reasons; // no point probing a directory we were never told about
+  }
+
+  const dir = path.resolve(dataDir());
+  if (!fs.existsSync(dir)) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch (e) {
+      reasons.push(`DATA_DIR (${dir}) does not exist and cannot be created — ${e.message}`);
+      return reasons;
+    }
+  }
+  if (!isWritable(dir)) {
+    reasons.push(`DATA_DIR (${dir}) is not writable by this process.`);
+  }
+  return reasons;
+}
+
 function checkPersistence() {
   const isProd = process.env.NODE_ENV === 'production';
   const warnings = [];
+
+  const fatalReasons = fatalPersistenceProblems();
+  if (fatalReasons.length) {
+    banner([
+      'FATAL — PERSISTENT STORAGE IS NOT CONFIGURED',
+      '',
+      ...fatalReasons,
+      '',
+      'Without it, every redeploy silently destroys in-progress bookings and',
+      'reopens the duplicate-ticket window. Refusing to start.',
+    ]);
+    return { ok: false, warnings: fatalReasons, fatal: true, fatalReasons };
+  }
 
   for (const target of persistentPaths()) {
     const dir = path.dirname(path.resolve(target.file));
@@ -218,7 +248,7 @@ function checkPersistence() {
     }
   }
 
-  return { ok: warnings.length === 0, warnings };
+  return { ok: warnings.length === 0, warnings, fatal: false, fatalReasons: [] };
 }
 
-module.exports = { checkPersistence, persistentPaths };
+module.exports = { checkPersistence, persistentPaths, fatalPersistenceProblems };

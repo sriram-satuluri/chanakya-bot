@@ -18,15 +18,14 @@
 
 const fs = require('fs');
 const path = require('path');
+const { statePath } = require('./dataDir');
 
 const SESSION_TIMEOUT_MS = 2 * 60 * 60 * 1000; // 2 hours
 const REMINDER_TIMEOUT_MS = 30 * 60 * 1000;     // 30 minutes
 const FLUSH_DEBOUNCE_MS = 1000;
 
 function resolvePath() {
-  const explicit = process.env.SESSION_CACHE_PATH?.trim();
-  if (explicit) return explicit;
-  return path.join(process.cwd(), 'data', 'sessions.json');
+  return statePath('sessions');
 }
 
 /** @type {Map<string, object>} */

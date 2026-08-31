@@ -91,9 +91,16 @@ logConfigWarnings();
 
 // Verify the directories holding state that must survive a redeploy are
 // writable and look like a mounted volume rather than an ephemeral container
-// filesystem. Warns loudly; never blocks startup.
+// filesystem. In production a missing/unwritable DATA_DIR is fatal — same
+// stance as a missing Meta or Sheets credential above, and for the same
+// reason: limping along silently is worse than not starting. Dev and staging
+// warn only.
 const { checkPersistence } = require('./utils/persistenceCheck');
-checkPersistence();
+const _persistence = checkPersistence();
+if (_persistence.fatal) {
+  console.error(`[CONFIG] FATAL: ${_persistence.fatalReasons.join(' ')} Refusing to start.`);
+  process.exit(1);
+}
 
 const cron = require('node-cron');
 const { verifyMetaWhatsAppCredentials } = require('./services/whatsapp');
@@ -342,7 +349,47 @@ const server = app.listen(PORT, async () => {
     console.error('[META] Startup check FAILED — outbound WhatsApp sends will error until fixed:', r.message || r.hint || JSON.stringify(r));
     console.error('       Run: npm run verify:meta — then paste a new META_ACCESS_TOKEN from Meta App → WhatsApp → API Setup.\n');
   }
+
+  // Sheets was only ever presence-checked: a malformed or revoked private key
+  // passed the "is it set?" test at boot and then failed on the first real
+  // customer, who got "please call the store" for a problem that was ours.
+  // One live read makes it fail here instead, next to the fix.
+  await verifySheetsAccess();
 });
+
+/**
+ * Prove the Sheets credentials actually work — a read, never a write.
+ *
+ * In production this is fatal, matching how a missing credential already
+ * behaves: a bot that cannot reach the sheet can neither create nor look up a
+ * ticket, so almost nothing it offers a customer works. Elsewhere it warns,
+ * so the flows that do not need Sheets are still developable offline.
+ */
+async function verifySheetsAccess() {
+  const { readTicketRows } = require('./services/sheets');
+  try {
+    const rows = await readTicketRows({ fresh: true, noRetry: true });
+    console.log(`[SHEETS] Startup check OK (repair_tickets readable, ${Math.max(0, rows.length - 1)} ticket row(s))\n`);
+    return true;
+  } catch (e) {
+    const detail = e.message || String(e);
+    if (process.env.NODE_ENV === 'production') {
+      console.error(
+        `[SHEETS] FATAL: cannot read the spreadsheet — ${detail}\n`
+        + '       Check GOOGLE_PRIVATE_KEY is the full key including the BEGIN/END lines and\n'
+        + '       the \\n escapes, that GOOGLE_SHEETS_ID is right, and that the sheet is shared\n'
+        + '       with GOOGLE_SERVICE_ACCOUNT_EMAIL as Editor. Run: npm run verify:sheet\n'
+        + '       Refusing to start — ticket creation and tracking would both fail.',
+      );
+      process.exit(1);
+    }
+    console.error(
+      `[SHEETS] Startup check FAILED — ticket create/lookup will error until fixed: ${detail}`,
+    );
+    console.error('       Run: npm run verify:sheet\n');
+    return false;
+  }
+}
 
 // Graceful shutdown — stop accepting new connections, let in-flight webhook responses finish.
 // Render / Railway / most hosts send SIGTERM before killing; we get up to ~10s to drain.

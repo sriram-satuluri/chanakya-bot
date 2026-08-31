@@ -6,6 +6,7 @@ const { getRecipientsForCorporate } = require('../utils/ownerPhones');
 const { notifyOwners } = require('../utils/ownerAlert');
 const { envInt } = require('../utils/env');
 const { formatIST } = require('../utils/istTime');
+const { statePath } = require('../utils/dataDir');
 
 /**
  * Periodic health check with owner alerting.
@@ -20,9 +21,7 @@ const { formatIST } = require('../utils/istTime');
 const FAILURES_BEFORE_ALERT = envInt('HEALTH_FAILURES_BEFORE_ALERT', 2, { min: 1 });
 
 function resolvePath() {
-  const explicit = process.env.HEALTH_CACHE_PATH?.trim();
-  if (explicit) return explicit;
-  return path.join(process.cwd(), 'data', 'health_state.json');
+  return statePath('health');
 }
 
 function emptyState() {
