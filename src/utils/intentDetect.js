@@ -7,9 +7,19 @@ const { isTicketLikeMessage } = require('./ticketParse');
 const intentMap = [
   {
     intent: 'main_menu',
+    // The greeting list was originally romanized only, so "namaste" opened the
+    // menu but "नमस्ते" did not — a customer greeting the bot in their own
+    // script was answered with "Sorry, I didn't quite get that". For a bot
+    // whose whole premise is Hindi and Gujarati, the native-script forms are
+    // the LIKELIER spelling, not the fallback. Both are kept: people switch
+    // between scripts freely on a phone keyboard.
     keywords: ['hi', 'hello', 'hey', 'start', 'menu', 'main menu',
       'namaste', 'namaskar', 'kem cho', 'kem chho', 'wapas', 'mukhpan',
-      'shuruaat', 'home', 'help'],
+      'shuruaat', 'home', 'help',
+      // Hindi — Devanagari
+      'नमस्ते', 'नमस्कार', 'हैलो', 'हाय', 'मेनू', 'मुख्य मेनू', 'वापस',
+      // Gujarati
+      'કેમ છો', 'કેમ છે', 'નમસ્તે', 'નમસ્કાર', 'હેલો', 'હાય', 'મેનુ', 'મુખ્ય મેનુ'],
     buttonIds: ['btn_main_menu', 'btn_back', 'btn_start_over'],
   },
   /* track_repair MUST be checked before repair. "repair status" contains
@@ -20,7 +30,10 @@ const intentMap = [
   {
     intent: 'track_repair',
     keywords: ['track', 'status', 'meri bag', 'bag kahan', 'kitna time',
-      'kab milegi', 'ticket', 'order status', 'repair status', 'cha-'],
+      'kab milegi', 'ticket', 'order status', 'repair status', 'cha-',
+      // ── DRAFT — PENDING VEDANT & VATSAL REVIEW (see NATIVE_SCRIPT_DRAFT) ──
+      'ट्रैक', 'स्थिति', 'बैग कहाँ', 'कब मिलेगा', 'कब तैयार', 'टिकट',
+      'ટ્રૅક', 'સ્થિતિ', 'બેગ ક્યાં', 'ક્યારે મળશે', 'ક્યારે તૈયાર', 'ટિકિટ'],
     buttonIds: ['btn_track', 'flow_track'],
     /* Full message or embedded CHA-* / track CHA-* / lowercase / unicode dashes */
     matcher: (t) => isTicketLikeMessage(t),
@@ -29,14 +42,26 @@ const intentMap = [
     intent: 'repair',
     keywords: ['repair', 'fix', 'toot', 'kharab', 'broken', 'damage', 'sudharo',
       'mend', 'zip', 'wheel', 'handle', 'lock', 'stitching', 'cleaning',
-      'rampair', 'sudhar', 'tuti', 'bigdi', 'repar'],
+      'rampair', 'sudhar', 'tuti', 'bigdi', 'repar',
+      // ── DRAFT — PENDING VEDANT & VATSAL REVIEW (see NATIVE_SCRIPT_DRAFT) ──
+      // NB: bare 'ठीक' is deliberately NOT here — it means "fine/OK", and
+      // "ठीक है" is how people say yes. Only the compound verb form.
+      'रिपेयर', 'मरम्मत', 'ठीक करवाना', 'टूट गया', 'खराब हो गया', 'सिलाई',
+      'ज़िप', 'चेन', 'पहिया', 'हैंडल',
+      'રિપેર', 'સમારકામ', 'તૂટી ગયું', 'ખરાબ થઈ', 'સિલાઈ',
+      'ઝિપ', 'ચેઈન', 'વ્હીલ', 'હેન્ડલ'],
     buttonIds: ['btn_repair', 'flow_repair'],
   },
   {
     intent: 'shop_catalog',
     keywords: ['shop', 'buy', 'kharidna', 'kharido', 'catalog', 'price',
       'kitna', 'kimat', 'rate', 'how much', 'show bags', 'bags dikhao',
-      'luggage', 'backpack', 'trolley', 'handbag'],
+      'luggage', 'backpack', 'trolley', 'handbag',
+      // ── DRAFT — PENDING VEDANT & VATSAL REVIEW (see NATIVE_SCRIPT_DRAFT) ──
+      // NB: bare 'बैग' / 'બેગ' deliberately absent — too generic, it appears
+      // in repair and tracking messages just as often as in buying ones.
+      'खरीदना', 'खरीदें', 'कीमत', 'दाम', 'नया बैग',
+      'ખરીદવું', 'ખરીદો', 'કિંમત', 'ભાવ', 'નવી બેગ'],
     buttonIds: ['btn_shop', 'flow_catalog'],
   },
   {
@@ -45,8 +70,18 @@ const intentMap = [
      * here was dead weight that only looked like it did something. */
     keywords: ['store', 'location', 'address', 'kahan hai', 'kahan hain',
       'dukan', 'where', 'direction', 'map', 'alkapuri', 'sursagar',
-      'sthaan', 'jaga', 'race course', 'pratap', 'directions'],
-    buttonIds: ['btn_location', 'btn_stores'],
+      'sthaan', 'jaga', 'race course', 'pratap', 'directions',
+      // ── DRAFT — PENDING VEDANT & VATSAL REVIEW (see NATIVE_SCRIPT_DRAFT) ──
+      // NB: bare 'कहाँ है' / 'ક્યાં છે' deliberately absent — it is equally
+      // "where is my bag" (track) and "where is the shop" (store). Both sides
+      // are qualified with their noun instead.
+      'दुकान', 'स्टोर', 'पता', 'दुकान कहाँ', 'रास्ता', 'नक्शा',
+      'દુકાન', 'સ્ટોર', 'સરનામું', 'દુકાન ક્યાં', 'રસ્તો', 'નકશો'],
+    // btn_dir_* are here so they resolve from ANY session state. They used to
+    // be matched only while the store flow sat on its 'pick_store' step — but
+    // that flow clears the session as soon as it answers, so the next tap on a
+    // button still sitting in the chat matched nothing and fell to fallback.
+    buttonIds: ['btn_location', 'btn_stores', 'btn_dir_alkapuri', 'btn_dir_sursagar'],
   },
   {
     intent: 'corporate',
@@ -117,14 +152,19 @@ function detectIntent(text, session) {
     resetFb();
     return '__continue_flow__';
   }
+  // Skipping the optional "who served you" question is a valid answer, not a
+  // failure to understand — it must not count toward the fallback counter.
+  if (/^btn_skip_staff$/i.test(text) && flow === 'repair') {
+    resetFb();
+    return '__continue_flow__';
+  }
   if ((/^store_alkapuri$/i.test(text) || /^store_sursagar$/i.test(text)) && flow === 'repair') {
     resetFb();
     return '__continue_flow__';
   }
-  if ((text === 'btn_dir_alkapuri' || text === 'btn_dir_sursagar') && flow === 'store_location') {
-    resetFb();
-    return '__continue_flow__';
-  }
+  // btn_dir_* were special-cased here, matched only while flow was
+  // 'store_location'. They now live on store_location's buttonIds and resolve
+  // from any state, so the guard was removed rather than left as dead weight.
 
   // Language picker rows (sent as an interactive list on first contact and
   // whenever the customer asks to switch).

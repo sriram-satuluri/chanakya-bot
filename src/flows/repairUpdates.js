@@ -66,8 +66,10 @@ async function handleRepairUpdatesAnswer(phone, text, session, intent = null) {
     } catch (e) {
       console.error(`[REPAIR-UPDATES] Failed to opt in ${_rd(phone)}:`, e.message);
     }
-    await sendTextMessage(phone, M.get('repair_updates_on_confirm', lang));
-    return askForPhoto(phone, lang);
+    // Confirmation and the photo request go out together — two separate
+    // notifications for one button tap is one too many at the end of a
+    // booking that has already sent several.
+    return askForPhoto(phone, lang, M.get('repair_updates_on_confirm', lang));
   }
 
   // Explicit "no", or any other reply — leave opted_in FALSE (as created).
@@ -82,8 +84,11 @@ async function handleRepairUpdatesAnswer(phone, text, session, intent = null) {
  * handler in webhook/handler.js instead of a flow step that could trap the
  * customer or be lost on restart.
  */
-async function askForPhoto(phone, lang) {
-  return sendTextMessage(phone, M.get('photo_request_after_ticket', lang))
+async function askForPhoto(phone, lang, prefix = '') {
+  const body = prefix
+    ? `${prefix}\n\n${M.get('photo_request_after_ticket', lang)}`
+    : M.get('photo_request_after_ticket', lang);
+  return sendTextMessage(phone, body)
     .catch((e) => console.error('[REPAIR-UPDATES] Photo request failed:', e.message));
 }
 

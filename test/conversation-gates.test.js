@@ -60,7 +60,8 @@ require.cache[sp].exports.getOpenTicketsForPhone = async () => [];
 require.cache[sp].exports.hasOpenOptedInTicket = async () => false;
 
 const { handleWebhook } = require('../src/webhook/handler');
-const { updateSession } = require('../src/utils/sessionStore');
+const { updateSession, getSession } = require('../src/utils/sessionStore');
+const { detectIntent } = require('../src/utils/intentDetect');
 
 /** Deliver one inbound text message and return everything the bot sent back. */
 async function send(phone, body) {
@@ -229,6 +230,124 @@ test('Change Language still works when it is actually answered', async () => {
   const out = await send(phone, 'lang_hindi');
   assert.ok(allIds(out).includes('btn_repair'), 'should land on the menu');
   assert.ok(allText(out).includes('हिंदी'), 'and the menu should be in the newly chosen language');
+});
+
+// ── Waiting on a human ────────────────────────────────────────
+/**
+ * Found by walking the bot as a frustrated customer: after asking for a
+ * person, saying "still there? hello?" replayed the entire welcome block —
+ * "Welcome to Chanakya, Vadodara's #1 Bag Store since 1996" — at someone
+ * mid-handoff. The paused state WAS being read, but only to auto-resume, and
+ * that check sat BELOW the main_menu branch, which a typed greeting hits
+ * first. Order matters here as much as the check itself.
+ */
+async function intoHandoff(phone) {
+  updateSession(phone, {
+    language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now(),
+  });
+  await send(phone, 'talk to a person');
+}
+
+test('checking in while waiting for a human is reassured, not re-onboarded', async () => {
+  const phone = '919444000020';
+  await intoHandoff(phone);
+
+  for (const probe of ['still there? hello?', 'any update', 'asdkjh']) {
+    const out = await send(phone, probe);
+    const text = allText(out);
+    assert.ok(text.includes('queue for a team member'), `"${probe}" should reassure`);
+    assert.ok(!text.includes('since 1996'), `"${probe}" must not replay the full welcome`);
+    assert.strictEqual(allIds(out).length, 0, 'and must not re-show the menu buttons');
+  }
+});
+
+test('a deliberate action still takes you out of the handoff queue', async () => {
+  const a = '919444000021';
+  await intoHandoff(a);
+  const repair = await send(a, 'btn_repair');
+  assert.ok(allText(repair).includes('name'), 'tapping Repair must start the booking');
+
+  const b = '919444000022';
+  await intoHandoff(b);
+  const menu = await send(b, 'btn_main_menu');
+  assert.ok(allIds(menu).includes('btn_repair'), 'tapping Main Menu must show the menu');
+
+  const c = '919444000023';
+  await intoHandoff(c);
+  const track = await send(c, 'track');
+  assert.ok(!allText(track).includes('queue for a team member'), 'typing "track" must resume');
+});
+
+// ── Store direction buttons ───────────────────────────────────
+/**
+ * These two buttons were matched only while the store flow sat on its
+ * 'pick_store' step — but that flow calls clearSession() the moment it
+ * answers, so the very next tap arrived with no flow at all and fell through
+ * to "It seems I'm having trouble understanding". A button the bot itself
+ * sent, one message earlier.
+ *
+ * WhatsApp buttons stay tappable in the chat history forever, so a direction
+ * tap has to work from any state, at any time.
+ */
+const CONFUSED = /trouble understanding|didn't quite get/;
+
+test('tapping the SAME store twice works both times', async () => {
+  const phone = '919444000030';
+  updateSession(phone, {
+    language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now(),
+  });
+  await send(phone, 'btn_location');
+
+  const first = await send(phone, 'btn_dir_alkapuri');
+  assert.ok(allText(first).includes('Alkapuri'), 'first tap should show Alkapuri');
+
+  const second = await send(phone, 'btn_dir_alkapuri');
+  assert.ok(!CONFUSED.test(allText(second)), 'a repeat tap must not fall back');
+  assert.ok(allText(second).includes('Alkapuri'), 'and must show Alkapuri again');
+});
+
+test('tapping the OTHER store right after works too', async () => {
+  const phone = '919444000031';
+  updateSession(phone, {
+    language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now(),
+  });
+  await send(phone, 'btn_location');
+  await send(phone, 'btn_dir_alkapuri');
+
+  const other = await send(phone, 'btn_dir_sursagar');
+  assert.ok(!CONFUSED.test(allText(other)), 'the other store must not fall back');
+  assert.ok(allText(other).includes('Sursagar'), 'and must show Sursagar');
+});
+
+test('a direction tap mid-booking answers WITHOUT losing the booking', async () => {
+  const phone = '919444000032';
+  const booking = {
+    language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now(),
+    currentFlow: 'repair', flowStep: 'ask_problem',
+    collectedData: { name: 'Meera', bagType: 'Backpack' },
+  };
+  updateSession(phone, booking);
+
+  const out = await send(phone, 'btn_dir_sursagar');
+  assert.ok(!CONFUSED.test(allText(out)), 'must be understood mid-flow');
+  assert.ok(allText(out).includes('Sursagar'), 'must show the store info');
+
+  // The whole point: the half-finished booking is untouched.
+  const s = getSession(phone);
+  assert.strictEqual(s.currentFlow, 'repair', 'flow must survive');
+  assert.strictEqual(s.flowStep, 'ask_problem', 'step must survive');
+  assert.deepStrictEqual(s.collectedData, { name: 'Meera', bagType: 'Backpack' },
+    'answers already given must survive');
+
+  // …and the customer can carry straight on.
+  const resumed = await send(phone, 'prob_0');
+  assert.ok(allIds(resumed).length > 0, 'the booking must continue normally');
+});
+
+test('a direction tap resolves as a real intent, from no session at all', () => {
+  // The router-level guarantee, independent of any flow.
+  assert.strictEqual(detectIntent('btn_dir_alkapuri', { phone: null }), 'store_location');
+  assert.strictEqual(detectIntent('btn_dir_sursagar', { phone: null }), 'store_location');
 });
 
 test.after(() => { try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* temp dir */ } });

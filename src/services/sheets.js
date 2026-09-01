@@ -244,6 +244,9 @@ const TICKET_COL = {
   STOP_REASON: 19, CONSECUTIVE_FAILURE_COUNT: 20,
   // V-Y — post-pickup feedback (see jobs/feedbackRequest.js)
   PICKED_UP_SEEN_AT: 21, FEEDBACK_REQUESTED_AT: 22, RATING: 23, RATING_AT: 24,
+  // Z — the shop-floor staff member who booked this ticket, when the customer
+  // was helped in store. Blank for the many bookings made from home.
+  SERVED_BY: 25,
 };
 /** A1 column letter for a 0-based TICKET_COL index (A-Z is enough here). */
 function ticketColLetter(idx) {
@@ -275,6 +278,11 @@ async function createRepairTicket(data) {
     '',                                                         // S last_update_sent_at
     '',                                                         // T stop_reason
     '0',                                                        // U consecutive_failure_count
+    '',                                                         // V picked_up_seen_at
+    '',                                                         // W feedback_requested_at
+    '',                                                         // X rating
+    '',                                                         // Y rating_at
+    safeUserText(data.servedBy || '', 60),                      // Z served_by — USER INPUT
   ];
   // Returns the sheet row so the caller can attach a photo later without a
   // full-sheet lookup (the photo now arrives AFTER the ticket is created).

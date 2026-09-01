@@ -26,7 +26,7 @@ const { sanitizeTemplateParam, isLikelySendablePhone } = require('../src/service
 const { isRetryableSheetsError, withSheetsRetry } = require('../src/services/sheets');
 const { detectIntent, intentMap } = require('../src/utils/intentDetect');
 const { getRecipientsForStore, branchSlugFromStoreHint } = require('../src/utils/ownerPhones');
-const { tryParseTicketId } = require('../src/utils/ticketParse');
+const { tryParseTicketId, shortTicketCode } = require('../src/utils/ticketParse');
 const { ticketLetterFromStore } = require('../src/utils/ticketId');
 
 // ── env parsing ───────────────────────────────────────────────
@@ -395,4 +395,117 @@ test('withSheetsRetry does not retry a 400', async () => {
     });
   }, /bad request/);
   assert.strictEqual(n, 1);
+});
+
+// ── Greetings in the customer's own script ────────────────────
+/**
+ * Found by walking the bot as a Gujarati and a Hindi customer: the greeting
+ * keywords were romanized only, so "namaste" opened the menu but "नमस्ते" was
+ * answered with "Sorry, I didn't quite get that". For a bot whose premise is
+ * Hindi and Gujarati, being greeted in the customer's own script and
+ * apologising for not understanding is the worst possible first impression.
+ */
+test('a greeting in Devanagari or Gujarati opens the menu, like the romanized form', () => {
+  const S = () => ({ phone: null });
+  for (const g of ['नमस्ते', 'नमस्कार', 'हैलो', 'मेनू']) {
+    assert.strictEqual(detectIntent(g, S()), 'main_menu', `Hindi greeting "${g}" must open the menu`);
+  }
+  for (const g of ['કેમ છો', 'નમસ્તે', 'હેલો', 'મેનુ']) {
+    assert.strictEqual(detectIntent(g, S()), 'main_menu', `Gujarati greeting "${g}" must open the menu`);
+  }
+  // The romanized forms must keep working — people switch scripts mid-chat.
+  for (const g of ['namaste', 'kem cho', 'hello']) {
+    assert.strictEqual(detectIntent(g, S()), 'main_menu');
+  }
+});
+
+// ── Spoken short ticket code ──────────────────────────────────
+/**
+ * "See-Aitch-Ay dash Arr dash two-oh-two-six dash oh-oh-one-three" is not
+ * something anyone reads down a phone line correctly. The STORED id is
+ * unchanged — this is display and input sugar over the top of it.
+ */
+test('a stored ticket id yields a sayable short code', () => {
+  assert.strictEqual(shortTicketCode('CHA-R-2026-0013'), 'R-13');
+  assert.strictEqual(shortTicketCode('CHA-S-2026-0007'), 'S-7');
+  assert.strictEqual(shortTicketCode('CHA-S-2026-0142'), 'S-142');
+  // Legacy ids carry no store letter, so there is nothing to shorten.
+  assert.strictEqual(shortTicketCode('CHA-2026-0042'), null);
+  assert.strictEqual(shortTicketCode('nonsense'), null);
+});
+
+test('the short code parses back to the full stored id', () => {
+  const year = currentISTYear();
+  for (const spoken of ['R13', 'R-13', 'r 13', 'r-13']) {
+    assert.strictEqual(tryParseTicketId(spoken), `CHA-R-${year}-0013`, `"${spoken}" should resolve`);
+  }
+  assert.strictEqual(tryParseTicketId('S7'), `CHA-S-${year}-0007`);
+  assert.strictEqual(tryParseTicketId('S-142'), `CHA-S-${year}-0142`);
+});
+
+test('a bare number is NOT a ticket reference', () => {
+  // This is the whole reason the letter prefix is required: 1-5 are feedback
+  // ratings, and digits turn up in ordinary conversation constantly.
+  for (const notATicket of ['13', '3', '1', '2026', 'R', 'hello', '']) {
+    assert.strictEqual(tryParseTicketId(notATicket), null, `"${notATicket}" must not parse`);
+  }
+});
+
+test('full ticket ids still parse exactly as before', () => {
+  assert.strictEqual(tryParseTicketId('CHA-R-2026-0013'), 'CHA-R-2026-0013');
+  assert.strictEqual(tryParseTicketId('TRACK cha-s-2026-42'), 'CHA-S-2026-0042');
+  assert.strictEqual(tryParseTicketId('CHA–2026–0042'), 'CHA-2026-0042');
+});
+
+/**
+ * DRAFT VOCABULARY — pending Vedant & Vatsal's review.
+ *
+ * Before this, 16 of 16 native-script phrases fell to "Sorry, I didn't quite
+ * get that": every keyword in the map was romanized, so a customer typing in
+ * their own script reached nothing. Buttons were always translated; typed
+ * input was not. If the wording changes after review, change it here too —
+ * these are the phrases a real customer is expected to send.
+ */
+test('typed Hindi reaches the right flow', () => {
+  const S = () => ({ phone: null });
+  const cases = {
+    'रिपेयर': 'repair', 'मरम्मत': 'repair', 'बैग टूट गया': 'repair', 'सिलाई': 'repair',
+    'ट्रैक': 'track_repair', 'मेरा बैग कहाँ है': 'track_repair', 'कब मिलेगा': 'track_repair',
+    'दुकान': 'store_location', 'स्टोर का पता': 'store_location', 'रास्ता': 'store_location',
+    'खरीदें': 'shop_catalog', 'कीमत': 'shop_catalog', 'नया बैग': 'shop_catalog',
+  };
+  for (const [phrase, intent] of Object.entries(cases)) {
+    assert.strictEqual(detectIntent(phrase, S()), intent, `"${phrase}" should reach ${intent}`);
+  }
+});
+
+test('typed Gujarati reaches the right flow', () => {
+  const S = () => ({ phone: null });
+  const cases = {
+    'બેગ રિપેર': 'repair', 'ઝિપ': 'repair', 'તૂટી ગયું': 'repair',
+    'ટ્રૅક': 'track_repair', 'બેગ ક્યાં છે': 'track_repair', 'ક્યારે મળશે': 'track_repair',
+    'સ્ટોર': 'store_location', 'દુકાન ક્યાં છે': 'store_location', 'સરનામું': 'store_location',
+    'ખરીદો': 'shop_catalog', 'કિંમત': 'shop_catalog',
+  };
+  for (const [phrase, intent] of Object.entries(cases)) {
+    assert.strictEqual(detectIntent(phrase, S()), intent, `"${phrase}" should reach ${intent}`);
+  }
+});
+
+test('"ठीक है" means OK, not "repair it"', () => {
+  // The single most dangerous word in the draft: ठीक alone means fine/OK, and
+  // "ठीक है" is how people say yes. Only the compound verb form is a keyword,
+  // so plain agreement must never be read as a repair request.
+  assert.notStrictEqual(detectIntent('ठीक है', { phone: null }), 'repair');
+});
+
+test('adding native greetings did not swallow the other native-script commands', () => {
+  const S = () => ({ phone: null });
+  assert.strictEqual(detectIntent('भाषा', S()), 'change_language');
+  assert.strictEqual(detectIntent('ભાષા', S()), 'change_language');
+  assert.strictEqual(detectIntent('नियम', S()), 'terms');
+  assert.strictEqual(detectIntent('શરતો', S()), 'terms');
+  assert.strictEqual(detectIntent('अपडेट बंद', S()), 'repair_updates_off');
+  assert.strictEqual(detectIntent('किसी से बात कराओ', S()), 'escalate');
+  assert.strictEqual(detectIntent('કોઈ સાથે વાત', S()), 'escalate');
 });

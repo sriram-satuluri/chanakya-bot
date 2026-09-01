@@ -230,10 +230,20 @@ const messages = {
   // the store menu and announced a photo that had not arrived yet. Their
   // replacements are photo_request_after_ticket / photo_attached below.
 
+  /** Optional last step: who in the shop is helping this customer.
+   *  Skippable in one tap, because most bookings are made from home with no
+   *  staff member involved and those customers must not be made to answer a
+   *  question that does not apply to them. */
+  ask_salesperson: {
+    english: `Last thing — if a *Chanakya team member* is helping you in store, type their *name* so we can assign this ticket to them.\n\nOtherwise just tap *Skip*.`,
+    hindi:   `आख़िरी बात — अगर स्टोर में हमारी *टीम का कोई सदस्य* आपकी मदद कर रहा है, तो उनका *नाम* लिखें ताकि यह टिकट उन्हें सौंपा जा सके।\n\nवरना *स्किप* दबाएं।`,
+    gujarati:`છેલ્લી વાત — જો સ્ટોરમાં *અમારી ટીમનું કોઈ સભ્ય* આપની મદદ કરી રહ્યું હોય, તો તેમનું *નામ* લખો જેથી આ ટિકિટ તેમને સોંપાય.\n\nનહીંતર *સ્કિપ* દબાવો.`,
+  },
+
   repair_confirmed: {
-    english: `✅ *Repair Request Confirmed!*\n\n🎫 *Ticket ID:* {{ticketId}}\n👜 *Bag:* {{bagType}}\n🔧 *Problem:* {{problem}}\n🏪 *Bring to:* {{store}}\n\n📋 *Next step:* Please bring your bag to *{{store}}* at your convenience (10 AM – 9 PM, Mon–Sun). Our team will inspect it and share a quotation — *repair work begins only after you approve the quote.*\n\n_Save your Ticket ID! Track anytime:_\n*TRACK {{ticketId}}*`,
-    hindi:   `✅ *रिपेयर अनुरोध पक्का हो गया!*\n\n🎫 *टिकट ID:* {{ticketId}}\n👜 *बैग:* {{bagType}}\n🔧 *समस्या:* {{problem}}\n🏪 *स्टोर:* {{store}}\n\n📋 *अगला कदम:* कृपया अपनी सुविधा अनुसार बैग *{{store}}* पर ले आएं (सुबह 10 – रात 9, सोम–रवि)। हमारी टीम जांच करके कोटेशन देगी — *आपकी मंज़ूरी के बाद ही रिपेयर शुरू होगी।*\n\n_अपना Ticket ID सेव करें! ट्रैक करें:_\n*TRACK {{ticketId}}*`,
-    gujarati:`✅ *રિપેર વિનંતી પક્કી થઈ!*\n\n🎫 *ટિકિટ ID:* {{ticketId}}\n👜 *બેગ:* {{bagType}}\n🔧 *સમસ્યા:* {{problem}}\n🏪 *સ્ટોર:* {{store}}\n\n📋 *આગળનું પગલું:* કૃપા કરીને આપની અનુકૂળતાએ બેગ *{{store}}* પર લઈ આવો (સવારે 10 – રાત 9, સોમ–રવિ). અમારી ટીમ ચકાસીને કોટેશન આપશે — *આપની મંજૂરી પછી જ રિપેર શરૂ થશે.*\n\n_ટિકિટ ID સાચવો! ટ્રૅક કરો:_\n*TRACK {{ticketId}}*`,
+    english: `✅ *Repair Request Confirmed!*\n\n🎫 *Ticket ID:* {{ticketId}}\n👜 *Bag:* {{bagType}}\n🔧 *Problem:* {{problem}}\n🏪 *Bring to:* {{store}}\n\n📋 *Next step:* Please bring your bag to *{{store}}* at your convenience (10 AM – 9 PM, Mon–Sun). Our team will inspect it and share a quotation — *repair work begins only after you approve the quote.*\n\n_Save your Ticket ID! Track anytime:_\n*TRACK {{ticketId}}*\n_On the phone or at the counter, just say *{{shortCode}}* — that's enough._`,
+    hindi:   `✅ *रिपेयर अनुरोध पक्का हो गया!*\n\n🎫 *टिकट ID:* {{ticketId}}\n👜 *बैग:* {{bagType}}\n🔧 *समस्या:* {{problem}}\n🏪 *स्टोर:* {{store}}\n\n📋 *अगला कदम:* कृपया अपनी सुविधा अनुसार बैग *{{store}}* पर ले आएं (सुबह 10 – रात 9, सोम–रवि)। हमारी टीम जांच करके कोटेशन देगी — *आपकी मंज़ूरी के बाद ही रिपेयर शुरू होगी।*\n\n_अपना Ticket ID सेव करें! ट्रैक करें:_\n*TRACK {{ticketId}}*\n_फ़ोन पर या काउंटर पर सिर्फ़ *{{shortCode}}* बोलें — इतना काफ़ी है।_`,
+    gujarati:`✅ *રિપેર વિનંતી પક્કી થઈ!*\n\n🎫 *ટિકિટ ID:* {{ticketId}}\n👜 *બેગ:* {{bagType}}\n🔧 *સમસ્યા:* {{problem}}\n🏪 *સ્ટોર:* {{store}}\n\n📋 *આગળનું પગલું:* કૃપા કરીને આપની અનુકૂળતાએ બેગ *{{store}}* પર લઈ આવો (સવારે 10 – રાત 9, સોમ–રવિ). અમારી ટીમ ચકાસીને કોટેશન આપશે — *આપની મંજૂરી પછી જ રિપેર શરૂ થશે.*\n\n_ટિકિટ ID સાચવો! ટ્રૅક કરો:_\n*TRACK {{ticketId}}*\n_ફોન પર કે કાઉન્ટર પર ફક્ત *{{shortCode}}* બોલો — એટલું પૂરતું છે._`,
   },
 
   track_ask_id: {
@@ -385,6 +395,16 @@ const messages = {
     english: `Sure! Connecting you to our team. 👋\n\nYou can reach us directly:\n\n{{contactBlock}}\n\n⏰ Available: 10 AM – 9 PM\n\nType *menu* anytime to restart the chatbot.`,
     hindi:   `बिल्कुल! आपको हमारी टीम से जोड़ रहे हैं। 👋\n\nसीधे संपर्क करें:\n\n{{contactBlock}}\n\n⏰ समय: सुबह 10 बजे – रात 9 बजे\n\nचैटबॉट दोबारा शुरू करने के लिए *menu* टाइप करें।`,
     gujarati:`ચોક્કસ! તમને અમારી ટીમ સાથે જોડી રહ્યા છીએ. 👋\n\nસીધો સંપર્ક કરો:\n\n{{contactBlock}}\n\n⏰ સમય: સવારે 10 – રાત 9\n\nચેટબોટ ફરીથી શરૂ કરવા *menu* ટાઇપ કરો.`,
+  },
+
+  /** Sent when someone who has asked for a human messages again while waiting.
+   *  Deliberately short and does NOT re-show the menu: replaying "Welcome to
+   *  Chanakya, Vadodara's #1 Bag Store since 1996" at a customer who is waiting
+   *  on a callback reads as though the bot forgot they asked. */
+  handoff_waiting: {
+    english: `You're in the queue for a team member — they'll be with you shortly. 🙏\n\nIf it's urgent, please call us on the numbers above.\n\n_Type *menu* if you'd like to use the bot again in the meantime._`,
+    hindi:   `आप हमारी टीम की प्रतीक्षा सूची में हैं — वे जल्द ही आपसे संपर्क करेंगे। 🙏\n\nअगर ज़रूरी है तो ऊपर दिए नंबरों पर कॉल करें।\n\n_इस बीच bot इस्तेमाल करना हो तो *menu* टाइप करें।_`,
+    gujarati:`તમે અમારી ટીમની રાહ યાદીમાં છો — તેઓ ટૂંક સમયમાં સંપર્ક કરશે. 🙏\n\nજો તાત્કાલિક હોય તો ઉપર આપેલા નંબર પર કૉલ કરો.\n\n_દરમિયાન bot વાપરવો હોય તો *menu* ટાઈપ કરો._`,
   },
 
   fallback_once: {

@@ -87,7 +87,18 @@ test('booking creates the ticket BEFORE the photo, so no photo means no lost boo
     currentFlow: 'repair', flowStep: 'ask_store',
     collectedData: { name: 'Ravi', bagType: 'Backpack', problem: 'Zip / Chain Issue' },
   };
+  // Store, then skip the optional "who served you" question — that step sits
+  // between the store picker and the write, and is skippable in one tap
+  // precisely so a booking made from home is never held up by it.
   await handleRepairFlow('919999000003', 'store_alkapuri', 'text', {}, session);
+  await handleRepairFlow('919999000003', 'btn_skip_staff', 'interactive', {}, {
+    phone: '919999000003', language: 'english',
+    currentFlow: 'repair', flowStep: 'ask_salesperson',
+    collectedData: {
+      name: 'Ravi', bagType: 'Backpack',
+      problem: 'Zip / Chain Issue', store: 'store_alkapuri',
+    },
+  });
 
   assert.strictEqual(created.length, 1, 'ticket created from four answers alone');
   assert.strictEqual(created[0].ticketId, 'CHA-2026-0500');

@@ -2,6 +2,7 @@ const { sendTextMessage, sendButtonMessage, sendListMessage } = require('../serv
 const { createRepairTicket, getCustomerName, setCustomerName } = require('../services/sheets');
 const { getTimestamp, setTimestamp } = require('../utils/throttleStore');
 const { generateTicketId } = require('../utils/ticketId');
+const { shortTicketCode } = require('../utils/ticketParse');
 const { getRecipientsForRepair } = require('../utils/ownerPhones');
 const { notifyOwners } = require('../utils/ownerAlert');
 const { updateSession, clearSession } = require('../utils/sessionStore');
@@ -42,6 +43,23 @@ function normalizeInteractiveLabel(s = '') {
     .replace(/[\u2044\u2215／]/g, '/')
     .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * Is this usable as a staff member's name?
+ *
+ * Stricter than looksLikePersonName because it must reject an emoji, and a
+ * single emoji is a surrogate pair — its .length is 2, so a plain length check
+ * waves "👍" straight through and files it as the salesperson. Requires at
+ * least two actual letters in ANY script, so Devanagari and Gujarati names
+ * pass just as readily as Latin ones.
+ */
+function looksLikeStaffName(text) {
+  const t = String(text || '').trim();
+  if (t.length < 2 || t.length > 40) return false;
+  if (/^(btn_|bag_|prob_|store_|cat_|lang_|combo_|ru_)/i.test(t)) return false;
+  if (t === '__IMAGE__') return false;
+  return (t.match(/\p{L}/gu) || []).length >= 2;
 }
 
 function looksLikePersonName(text) {
@@ -179,10 +197,28 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
       return sendStoreMenu(phone, lang);
     }
 
-    // ── Step 4 (final): Store selection → create the ticket ───
+    // ── Step 4: Store selection → ask who is helping them ────
     case 'ask_store': {
       const store = resolveStore(text);
       if (!store) return sendStoreMenu(phone, lang);
+      updateSession(phone, { flowStep: 'ask_salesperson', collectedData: { ...data, store } });
+      return sendSalespersonPrompt(phone, lang);
+    }
+
+    // ── Step 5 (final): optional staff name → create the ticket ──
+    case 'ask_salesperson': {
+      const store = data.store;
+      if (!store) {
+        // Shouldn't happen, but never create a ticket with no store.
+        updateSession(phone, { flowStep: 'ask_store' });
+        return sendStoreMenu(phone, lang);
+      }
+
+      // Skipped, or typed something that clearly isn't a name (a stray button
+      // id, an emoji, one character). Booking from home is the common case —
+      // never block it over an optional field, so anything unusable is simply
+      // treated as "no staff member" rather than re-prompted.
+      const servedBy = looksLikeStaffName(text) ? text.trim() : '';
 
       // In-flight lock. The throttle below is a check-then-act pair with two
       // awaits between the read and the write, so two taps landing in the same
@@ -200,7 +236,7 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
       }
       _ticketInFlight.add(phone);
       try {
-        return await createTicketForStore(phone, store, data, lang);
+        return await createTicketForStore(phone, store, { ...data, servedBy }, lang);
       } finally {
         _ticketInFlight.delete(phone);
       }
@@ -252,6 +288,7 @@ async function createTicketForStore(phone, store, data, lang) {
           store:          storeName,
           beforePhotoUrl: '',   // arrives later
           language:       lang,
+          servedBy:       data.servedBy || '',   // blank unless booked in store
         });
         // Only count a ticket toward the throttle once it actually persisted —
         // a failed creation shouldn't lock the customer out of retrying.
@@ -268,6 +305,9 @@ async function createTicketForStore(phone, store, data, lang) {
           `👜 *Bag:* ${data.bagType}\n` +
           `🔧 *Issue:* ${data.problem}\n` +
           `🏪 *Store:* ${storeName}\n` +
+          // Only shown when someone actually served them in store — an
+          // "Assigned to: —" line on every home booking is just noise.
+          (data.servedBy ? `🧑‍💼 *Assigned to:* ${data.servedBy}\n` : '') +
           `📸 *Photo:* awaiting — customer asked to send one\n` +
           `🌐 *Language:* ${lang}`;
         // Notify general owners + any branch-specific owner (Nilesh for Sursagar, etc.)
@@ -283,34 +323,36 @@ async function createTicketForStore(phone, store, data, lang) {
         return sendTextMessage(phone, M.get('ticket_create_failed', lang));
       }
 
-      // Send confirmation
-      const confirmMsg = M.fill(M.get('repair_confirmed', lang), {
-        ticketId, bagType: data.bagType, problem: data.problem, store: storeName,
-      });
-
-      clearSession(phone);
-      await sendTextMessage(phone, confirmMsg);
-      // T&C reminder — records the customer's acceptance of key obligations.
-      // No link here (T&Cs are already sent on the main menu); customers can
-      // type "terms" any time to re-read them.
-      await sendTextMessage(phone, M.get('terms_reminder_repair', lang)).catch(() => {});
-
+      // ONE confirmation message, not three.
+      //
+      // This used to send the confirmation, then the T&C reminder, then the
+      // store contact block as three separate texts — and the opt-in question
+      // right after made four notifications for a single button tap. The
+      // detail people actually keep (the ticket id) scrolled away under the
+      // rest. Same words, same T&C acceptance record, one buzz.
       const branchSlug = branchSlugFromRepairStoreId(store);
+      const parts = [
+        M.fill(M.get('repair_confirmed', lang), {
+          ticketId, bagType: data.bagType, problem: data.problem, store: storeName,
+          // Spoken short form ("R-13"). Falls back to the full id for a legacy
+          // ticket with no store letter, so the sentence still reads correctly.
+          shortCode: shortTicketCode(ticketId) || ticketId,
+        }),
+        M.get('terms_reminder_repair', lang),
+      ];
       if (branchSlug) {
         const contactBody =
           lang === 'english'
             ? directoryWithEmailAndWebForBranch(branchSlug)
             : directoryWithEmailForBranch(branchSlug);
-        await sendTextMessage(
-          phone,
-          M.fill(M.get('contact_for_store', lang), { storeName, contactBody }),
-        );
+        parts.push(M.fill(M.get('contact_for_store', lang), { storeName, contactBody }));
       }
 
-      // Finally: ask whether they want proactive updates on this ticket.
-      // This parks the session on the 'repair_updates' flow to catch the
-      // answer, so it replaces the old "what next?" buttons rather than
-      // adding another message — the answer buttons double as the exit.
+      clearSession(phone);
+      await sendTextMessage(phone, parts.join('\n\n'));
+
+      // Then the opt-in question. Its answer buttons double as the exit, so
+      // this is the second and final message of the booking.
       return askRepairUpdatesOptIn(phone, lang, ticketId);
 }
 
@@ -354,6 +396,25 @@ async function sendProblemMenu(phone, lang, bagType) {
  * the ticket exists, so the old "Photo received! ✅" wording that used to lead
  * this message was claiming something that hadn't happened yet.
  */
+/**
+ * Ask who on the shop floor is helping, with a one-tap way out.
+ *
+ * Most bookings are made from home with no staff member involved, so this has
+ * to be skippable without typing. Free text is accepted for the name because
+ * staff lists change and hard-coding names would go stale the first time
+ * someone new joins.
+ */
+async function sendSalespersonPrompt(phone, lang) {
+  const skip = {
+    english:  '⏭️ Skip',
+    hindi:    '⏭️ स्किप करें',
+    gujarati: '⏭️ સ્કિપ કરો',
+  };
+  return sendButtonMessage(phone, M.get('ask_salesperson', lang), [
+    { id: 'btn_skip_staff', title: (skip[lang] || skip.english).substring(0, 20) },
+  ]);
+}
+
 async function sendStoreMenu(phone, lang) {
   const stores = STORES[lang] || STORES.english;
   const prompt = {

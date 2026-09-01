@@ -286,6 +286,19 @@ const LANGUAGE_GATE_ESCAPE_INTENTS = new Set([
 const MAX_LANGUAGE_PICK_ASKS = 2;
 
 /**
+ * Intents that mean "I've moved on, take me out of the handoff queue".
+ *
+ * Deliberately excludes main_menu — a typed "hello?" or "menu?" while waiting
+ * is almost always someone checking the bot is alive, not a request to start
+ * over. Tapping the actual 🏠 button IS treated as deliberate (checked on the
+ * raw button id). Also excludes escalate: asking for a human again while
+ * already queued should reassure, not re-send the same contact card.
+ */
+const HANDOFF_RESUME_INTENTS = new Set([
+  'repair', 'track_repair', 'shop_catalog', 'corporate', 'store_location', 'terms',
+]);
+
+/**
  * Per-phone inbound flood control.
  *
  * Deliberately generous: a real person tapping through the booking flow sends
@@ -358,6 +371,17 @@ function releaseLanguagePicker(phone, session) {
   updateSession(phone, patch);
   Object.assign(session, patch);
 }
+
+/**
+ * Buttons that answer a question WITHOUT abandoning what the customer was
+ * doing. Deliberately NOT in FLOW_TRIGGER_BUTTONS below: that set exists to
+ * discard flow state, which is right for "actually, take me to Repairs" and
+ * wrong here. Someone three questions into a booking who taps a store
+ * direction button wants the address, not to lose the booking — the two
+ * buttons sit in the chat history forever and get tapped long after the
+ * conversation that produced them has moved on.
+ */
+const NON_DISRUPTIVE_BUTTONS = new Set(['btn_dir_alkapuri', 'btn_dir_sursagar']);
 
 const FLOW_TRIGGER_BUTTONS = new Set([
   'btn_repair', 'btn_shop', 'btn_track', 'btn_corporate', 'btn_location', 'btn_human', 'btn_terms',
@@ -493,6 +517,34 @@ async function routeMessage({ phone, text, msgType, message, session, intent, an
     if (handled) return;
   }
 
+  // Waiting on a human?
+  //
+  // MUST sit above the main_menu branch below. A customer who has asked for a
+  // person and is waiting typically checks the bot is alive — "hello?", "any
+  // update?" — and those resolve to main_menu, so the old code replayed the
+  // whole "Welcome to Chanakya, Vadodara's #1 Bag Store since 1996" block at
+  // someone mid-handoff. It reads as though the bot forgot they asked.
+  //
+  // Only a DELIBERATE request to do something else resumes the bot; anything
+  // else gets a short reassurance and the session stays paused.
+  if (session.currentFlow === 'paused') {
+    const deliberate = FLOW_TRIGGER_BUTTONS.has(text)
+      || text === 'btn_main_menu'
+      || HANDOFF_RESUME_INTENTS.has(intent);
+    if (!deliberate) {
+      const { sendTextMessage } = require('../services/whatsapp');
+      const M = require('../messages/index');
+      console.log(`[HANDOFF] ${redactPhone(phone)} messaged while waiting — reassured, still paused`);
+      return sendTextMessage(phone, M.get('handoff_waiting', session.language));
+    }
+    console.log(`[ROUTE] Resuming paused session for ${redactPhone(phone)} (msg="${sanitizeForLog(text, 40)}")`);
+    updateSession(phone, { currentFlow: null, flowStep: null, collectedData: {}, fallbackCount: 0 });
+    session.currentFlow = null;
+    session.flowStep = null;
+    session.collectedData = {};
+    session.fallbackCount = 0;
+  }
+
   // Explicit "go to main menu" always resets and shows the menu — escape hatch.
   // Also resets the fallback counter so a returning user doesn't get insta-escalated
   // after previously hitting 3 fallbacks.
@@ -501,17 +553,16 @@ async function routeMessage({ phone, text, msgType, message, session, intent, an
     return showMainMenu(phone, session.language);
   }
 
-  // Escalation-paused sessions were a UX dead-end: user tapped "Talk to Team", session
-  // paused for 2h, and any subsequent message was silently ignored. Now, if a paused
-  // customer sends ANY message — button tap or free text — we auto-resume: clear the
-  // paused flow so the intent switch below can route normally.
-  if (session.currentFlow === 'paused') {
-    console.log(`[ROUTE] Auto-resuming paused session for ${redactPhone(phone)} (msg="${sanitizeForLog(text, 40)}")`);
-    updateSession(phone, { currentFlow: null, flowStep: null, collectedData: {}, fallbackCount: 0 });
-    session.currentFlow = null;
-    session.flowStep = null;
-    session.collectedData = {};
-    session.fallbackCount = 0;
+  // (The paused/waiting-on-a-human branch now lives ABOVE the main_menu check —
+  //  see handleWaitingForHuman(). Leaving this note so nobody re-adds it here.)
+
+  // Store directions: a stateless one-off lookup, answered wherever it lands.
+  // Checked BEFORE the flow-switch reset below and before the active-flow
+  // switch, so an in-progress booking is neither discarded nor allowed to
+  // swallow the tap. handleStoreLocations only clears the session when the
+  // store flow itself owned it.
+  if (NON_DISRUPTIVE_BUTTONS.has(text)) {
+    return handleStoreLocations(phone, text, session, intent);
   }
 
   // Tapping a main-menu trigger button mid-flow = user wants to switch context.

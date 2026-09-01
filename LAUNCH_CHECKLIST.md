@@ -167,3 +167,51 @@ free-form. They require the owner to have messaged the bot within 24h.
 - Ticket counter lives in `repair_tickets!P1` — don't delete it.
 - Single-process by design. Do not scale replicas without moving sessions
   and the ticket counter to a shared store.
+
+## Considered and deliberately NOT done
+
+Recorded so nobody re-opens these thinking they were overlooked.
+
+### Photo quality warning — SKIPPED, not deferred
+
+Idea: tell a customer when the repair photo they sent is blurry or sideways.
+
+**Not implemented, and I don't recommend implementing it as specified.** The
+two things actually worth catching are the two that aren't cheaply reachable:
+
+| Check | Feasible with current deps? |
+| --- | --- |
+| File size | yes, free |
+| Dimensions | yes, ~40 lines parsing JPEG SOF0 / PNG IHDR |
+| **Blur** | **no** — needs pixel-level analysis (Laplacian variance), which means decoding the image: `sharp` or `jimp`, a heavy native dependency |
+| **Sideways** | **unreliable** — depends on EXIF orientation, and WhatsApp re-encodes images and usually strips EXIF, so the rotation is baked into pixels with no flag left to read |
+
+What a minimal version *could* flag is small dimensions and small file size,
+which correlate loosely with screenshots and heavy compression — **not with
+blur**. A "your photo may be unclear" warning that fires on a perfectly
+readable photo is worse than no warning: it trains people to ignore the bot.
+
+Revisit only if staff report photo quality is genuinely costing them time. The
+real fix is `sharp` + a blur metric, which is a considered dependency decision,
+not a launch-week one.
+
+### Store hours in one place — AFTER LAUNCH
+
+Store hours are hardcoded in **27 places across 2 files**:
+
+- `src/flows/catalog.js` — lines 126/130/134 (category link) and 165/168/171 (browse all)
+- `src/messages/index.js` — `terms_summary`, `repair_confirmed`,
+  `status_physical_pending`, `status_ready_pickup`, `store_intro`,
+  `escalate_message`, `pickup_reminder` — three languages each
+
+A festival closure or an hours change today means 27 edits, and missing one
+means the bot tells different customers different things.
+
+**Confirmed worth doing — just not before launch.** The plan: a new
+`src/constants/storeHours.js` exporting `hoursLine(lang)` / `hoursShort(lang)`,
+interpolated exactly the way `${defaultCallLine()}` already is in these files.
+
+Deliberately deferred because 21 of the 27 edits are inside Hindi and Gujarati
+message strings. That is a lot of multilingual churn for zero customer-visible
+change, on the week of a launch, in a file where a bad edit has silently
+destroyed Devanagari before. It is a safe change with a calm week around it.
