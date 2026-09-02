@@ -464,6 +464,41 @@ test('the category prompt is no longer bag-only', () => {
   }
 });
 
+/* sendButtonMessage does .substring(0, 20) on every title, so an over-long
+ * label does not error — it ships truncated mid-word ("🛍️ Corporate Marketp").
+ * Devanagari and Gujarati run longer than their English counterparts, so a
+ * label that fits in English can still overflow in the other two. */
+test('no reply-button title can be silently truncated by the 20-char cap', () => {
+  const flowsDir = path.join(__dirname, '..', 'src', 'flows');
+  // The single-line button form: { id: 'btn_x', title: '…' } with no description.
+  const buttonLine = /\{\s*id:\s*'([a-z_]+)',\s*title:\s*'([^']+)'\s*\}/g;
+  const offenders = [];
+  for (const file of fs.readdirSync(flowsDir).filter((f) => f.endsWith('.js'))) {
+    const text = fs.readFileSync(path.join(flowsDir, file), 'utf8');
+    for (const [, id, title] of text.matchAll(buttonLine)) {
+      if (title.length > 20) offenders.push(`${file} ${id} (${title.length}) ${title}`);
+    }
+  }
+  assert.deepStrictEqual(offenders, [], 'these titles will render truncated');
+});
+
+test('the marketplace rename is consistent across menu, terms and catalogue', () => {
+  const read = (p) => fs.readFileSync(path.join(__dirname, '..', 'src', p), 'utf8');
+  const menu = read('flows/mainMenu.js');
+  const terms = read('flows/terms.js');
+  const catalog = read('flows/catalog.js');
+  // The old English label is gone from every entry point.
+  for (const [name, text] of [['mainMenu', menu], ['terms', terms]]) {
+    assert.ok(!/title:\s*'🛍️ Shop'/.test(text), `${name} still offers "Shop"`);
+    assert.ok(/Marketplace/.test(text), `${name} offers the Marketplace label`);
+  }
+  // The full name survives where there is room for it.
+  assert.ok(/🛍️ Corporate Marketplace/.test(catalog), 'catalogue header carries the full name');
+  // And typing it back reaches the catalogue.
+  const { detectIntent } = require('../src/utils/intentDetect');
+  assert.strictEqual(detectIntent('marketplace', { phone: null }), 'shop_catalog');
+});
+
 // ── Intent shadowing ──────────────────────────────────────────
 /**
  * The permanent guard for a bug class that has now recurred twice.
