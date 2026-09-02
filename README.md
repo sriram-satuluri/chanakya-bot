@@ -192,7 +192,7 @@ Cell **P1** is the ticket counter. Initialise to `0` only when empty — never r
 
 ### Tab: product\_catalog
 
-Sheet tab still exists (headers below) for completeness. **The Shop flow does not read it** — it deep-links to the live website (`front.chanakyacorporate.com`).
+Sheet tab still exists (headers below) for completeness. **The Shop flow does not read it** — it deep-links to the live website (`www.chanakyacorporate.com`, set once as `CATALOG_SITE` in `src/constants/catalogCategories.js`).
 
 ```
 product_id | category | brand | name | price_range | in_stock | description_en | description_hi | description_gu | image_url | store_availability

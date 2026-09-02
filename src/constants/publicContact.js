@@ -2,6 +2,8 @@
  * Default customer-facing contact shown in bot messages.
  */
 
+const { browseAllUrl } = require('./catalogCategories');
+
 const DEFAULT_CONTACT_NAME = 'Vatsal Joshi';
 /** Human-readable dialing line (shown in Markdown messages) */
 const DEFAULT_CONTACT_PHONE_DISPLAY = '+91 99740 17725';
@@ -74,7 +76,9 @@ function directoryWithEmailForBranch(slug) {
 }
 
 function directoryWithEmailAndWebForBranch(slug) {
-  return `${directoryWithEmailForBranch(slug)}\n🌐 front.chanakyacorporate.com`;
+  // Full product-list URL, not a bare hostname: the bare form was not tappable
+  // in WhatsApp and pointed at a subdomain that has since stopped resolving.
+  return `${directoryWithEmailForBranch(slug)}\n🌐 ${browseAllUrl()}`;
 }
 
 function directoryWithEmail() {
@@ -82,16 +86,12 @@ function directoryWithEmail() {
 }
 
 /**
- * Corporate marketplace, shown in the bulk-order flow only.
- *
- * NOTE the domain: this is `www.`, while CATALOG_SITE in constants/
- * catalogCategories.js (the retail browse flow) and the 🌐 line in
- * directoryWithEmailAndWebForBranch() are both `front.`. That split is
- * deliberate for now — the bulk flow was given `www.` explicitly and the retail
- * flows were left untouched. If the two ever need to agree, change them
- * together rather than assuming this one is a typo.
+ * Corporate marketplace link. Derived from catalogCategories.CATALOG_SITE so
+ * the host lives in exactly one place — the previous split between `front.`
+ * and `www.` is precisely how the bot ended up shipping links to a subdomain
+ * that no longer resolves.
  */
-const CORPORATE_MARKETPLACE_URL = 'https://www.chanakyacorporate.com/product-list';
+const CORPORATE_MARKETPLACE_URL = browseAllUrl();
 
 /**
  * Contact block for the bulk / corporate confirmation ONLY.

@@ -351,9 +351,9 @@ const messages = {
   // The examples are illustrative, never validated against.
   // ── hindi/gujarati DRAFT — PENDING VEDANT & VATSAL REVIEW ──
   corporate_ask_product: {
-    english: `What do you need?\n\n_e.g. Office Bags, Backpacks, Travel Bags, Electronics, Home & Kitchen Appliances, Corporate Gifting, Monsoon Wear, Helmets, Thermoware, Winter Wear, Men's & Women's Accessories_\n\n🌐 Browse the full range: ${CORPORATE_MARKETPLACE_URL}`,
-    hindi:   `आपको क्या चाहिए?\n\n_जैसे: ऑफिस बैग, बैकपैक, ट्रैवल बैग, इलेक्ट्रॉनिक्स, होम और किचन अप्लायंसेज़, कॉर्पोरेट गिफ्टिंग, मानसून वेयर, हेलमेट, थर्मोवेयर, विंटर वेयर, पुरुषों और महिलाओं की एक्सेसरीज़_\n\n🌐 पूरी रेंज देखें: ${CORPORATE_MARKETPLACE_URL}`,
-    gujarati:`આપને શું જોઈએ?\n\n_દા.ત. ઓફિસ બેગ, બૅકપૅક, ટ્રાવેલ બેગ, ઇલેક્ટ્રોનિક્સ, હોમ અને કિચન એપ્લાયન્સિસ, કૉર્પોરેટ ગિફ્ટિંગ, મૉન્સૂન વેર, હેલ્મેટ, થર્મોવેર, વિન્ટર વેર, પુરુષો અને મહિલાઓની એક્સેસરીઝ_\n\n🌐 સંપૂર્ણ રેન્જ જુઓ: ${CORPORATE_MARKETPLACE_URL}`,
+    english: `What do you need?\n\n_e.g. Office Bags, Backpacks, Travel Bags, Electronics, Home & Kitchen Appliances, Corporate Gifting, Monsoon Wear, Helmets, Thermoware, Winter Wear, Men's & Women's Accessories_\n\n🌐 Browse the full range: ${CORPORATE_MARKETPLACE_URL}\n\nHave a good look around — then come back and tell me here what you need. Bulk and corporate orders are quoted through this chat, not on the website.`,
+    hindi:   `आपको क्या चाहिए?\n\n_जैसे: ऑफिस बैग, बैकपैक, ट्रैवल बैग, इलेक्ट्रॉनिक्स, होम और किचन अप्लायंसेज़, कॉर्पोरेट गिफ्टिंग, मानसून वेयर, हेलमेट, थर्मोवेयर, विंटर वेयर, पुरुषों और महिलाओं की एक्सेसरीज़_\n\n🌐 पूरी रेंज देखें: ${CORPORATE_MARKETPLACE_URL}\n\nआराम से देख लें — फिर यहीं वापस आकर बताएं कि आपको क्या चाहिए। बल्क और कॉर्पोरेट ऑर्डर का कोटेशन वेबसाइट पर नहीं, इसी चैट से होता है।`,
+    gujarati:`આપને શું જોઈએ?\n\n_દા.ત. ઓફિસ બેગ, બૅકપૅક, ટ્રાવેલ બેગ, ઇલેક્ટ્રોનિક્સ, હોમ અને કિચન એપ્લાયન્સિસ, કૉર્પોરેટ ગિફ્ટિંગ, મૉન્સૂન વેર, હેલ્મેટ, થર્મોવેર, વિન્ટર વેર, પુરુષો અને મહિલાઓની એક્સેસરીઝ_\n\n🌐 સંપૂર્ણ રેન્જ જુઓ: ${CORPORATE_MARKETPLACE_URL}\n\nનિરાંતે જોઈ લો — પછી અહીં જ પાછા આવીને જણાવો કે આપને શું જોઈએ. બલ્ક અને કૉર્પોરેટ ઓર્ડરનું કોટેશન વેબસાઇટ પર નહીં, આ ચેટ દ્વારા જ થાય છે.`,
   },
 
   // "pieces" not "bags" — the category question is no longer bag-only.

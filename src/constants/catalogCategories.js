@@ -1,13 +1,22 @@
-// Live categories pulled from https://front.chanakyacorporate.com/
-// CategoryMaster API (May 2026). The `id` is the MongoDB _id used by the
-// website to filter the product list page.
+// Live categories pulled from the CategoryMaster API (May 2026). The `id` is
+// the MongoDB _id used by the website to filter the product list page.
 //
-// Deep-link URL pattern (sniffed from the bundled JS):
-//   https://front.chanakyacorporate.com/product-list?category={id}&categoryName={encodedName}
+// Deep-link URL pattern:
+//   https://www.chanakyacorporate.com/product-list?category={id}&categoryName={encodedName}
 //
-// To refresh: hit GET https://front.chanakyacorporate.com/api/auth/list/CategoryMaster
-
-const CATALOG_SITE = 'https://front.chanakyacorporate.com';
+// To refresh: hit GET https://www.chanakyacorporate.com/api/auth/list/CategoryMaster
+//
+// HOST HISTORY (Sept 2026): this used to point at the old `front.` subdomain.
+// That subdomain stopped resolving — NXDOMAIN, not a redirect — which meant
+// every catalogue link the bot sent was dead with no error anywhere in our
+// logs, because we never fetch these URLs ourselves. Re-verified against the
+// live site when switching: all 14 ids below still resolve, the apex 301s to
+// www, and www serves the same CategoryMaster API. Single source of truth for
+// the host is this constant — publicContact.js derives its link from
+// browseAllUrl() rather than repeating the string. A test asserts the old
+// hostname appears nowhere under src/, comments included, so it cannot be
+// pasted back in.
+const CATALOG_SITE = 'https://www.chanakyacorporate.com';
 
 const CATEGORIES = [
   {

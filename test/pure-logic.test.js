@@ -407,6 +407,54 @@ test('every bulk-flow message is really translated, not falling back to English'
   }
 });
 
+/* front.chanakyacorporate.com stopped resolving (NXDOMAIN) while it was still
+ * hardcoded here, so the bot sent customers to a dead host and nothing logged
+ * an error — we never fetch these URLs ourselves. This guards the whole tree
+ * rather than the one constant, because the string was duplicated last time. */
+test('no source file links to the dead front. subdomain', () => {
+  const walk = (dir) => fs.readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const full = path.join(dir, e.name);
+    return e.isDirectory() ? walk(full) : (full.endsWith('.js') ? [full] : []);
+  });
+  const offenders = walk(path.join(__dirname, '..', 'src'))
+    .filter((f) => /front\.chanakyacorporate/i.test(fs.readFileSync(f, 'utf8')));
+  assert.deepStrictEqual(offenders, [], 'these still point at the dead host');
+});
+
+test('every marketplace link the bot can emit uses one live host', () => {
+  const { CATALOG_SITE, browseAllUrl, categoryUrl, CATEGORIES } = require('../src/constants/catalogCategories');
+  const { CORPORATE_MARKETPLACE_URL } = require('../src/constants/publicContact');
+  assert.strictEqual(CATALOG_SITE, 'https://www.chanakyacorporate.com');
+  assert.strictEqual(browseAllUrl(), 'https://www.chanakyacorporate.com/product-list');
+  assert.strictEqual(CORPORATE_MARKETPLACE_URL, browseAllUrl(), 'bulk link must not drift from the catalogue host');
+  for (const cat of CATEGORIES) {
+    assert.ok(
+      categoryUrl(cat).startsWith('https://www.chanakyacorporate.com/product-list?category='),
+      `${cat.apiName} deep-link is on the live host`,
+    );
+  }
+});
+
+test('the store contact block links to the marketplace, not a bare hostname', () => {
+  const { directoryWithEmailAndWebForBranch } = require('../src/constants/publicContact');
+  const { browseAllUrl } = require('../src/constants/catalogCategories');
+  const block = directoryWithEmailAndWebForBranch('sursagar');
+  assert.ok(block.includes(browseAllUrl()), 'full tappable URL is present');
+  assert.ok(!/front\.chanakyacorporate/i.test(block), 'dead host is gone');
+});
+
+test('the bulk category prompt tells people to come back to the chat', () => {
+  const M = require('../src/messages/index');
+  const expectations = {
+    english:  /come back and tell me here/i,
+    hindi:    /यहीं वापस आकर/,
+    gujarati: /અહીં જ પાછા આવીને/,
+  };
+  for (const [lang, re] of Object.entries(expectations)) {
+    assert.match(M.get('corporate_ask_product', lang), re, `${lang}: return-to-chat nudge`);
+  }
+});
+
 test('the category prompt is no longer bag-only', () => {
   const M = require('../src/messages/index');
   const en = M.get('corporate_ask_product', 'english');

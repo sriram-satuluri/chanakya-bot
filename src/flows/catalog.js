@@ -6,7 +6,8 @@ const { CATEGORIES, categoryUrl, browseAllUrl } = require('../constants/catalogC
 const M = require('../messages/index');
 
 // We deep-link customers to the website rather than try to render 100+ products
-// inside WhatsApp — the website is the live source of truth (front.chanakyacorporate.com).
+// inside WhatsApp — the website is the live source of truth. The host lives in
+// constants/catalogCategories.js (CATALOG_SITE); never hardcode it here.
 
 async function handleCatalogFlow(phone, text, session, intent = null) {
   const lang = session.language || 'english';
