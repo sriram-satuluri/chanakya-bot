@@ -36,17 +36,17 @@ async function handleTermsRequest(phone, lang = 'english') {
     english:  [
       { id: 'btn_main_menu', title: '🏠 Main Menu' },
       { id: 'btn_repair',    title: '🔧 Repair a Bag' },
-      { id: 'btn_shop',      title: '🛍️ Shop' },
+      { id: 'btn_shop',      title: '🛍️ Marketplace' },
     ],
     hindi:    [
       { id: 'btn_main_menu', title: '🏠 मुख्य मेनू' },
       { id: 'btn_repair',    title: '🔧 बैग रिपेयर' },
-      { id: 'btn_shop',      title: '🛍️ खरीदें' },
+      { id: 'btn_shop',      title: '🛍️ मार्केटप्लेस' },
     ],
     gujarati: [
       { id: 'btn_main_menu', title: '🏠 મુખ્ય મેનુ' },
       { id: 'btn_repair',    title: '🔧 બેગ રિપેર' },
-      { id: 'btn_shop',      title: '🛍️ ખરીદો' },
+      { id: 'btn_shop',      title: '🛍️ માર્કેટપ્લેસ' },
     ],
   };
 

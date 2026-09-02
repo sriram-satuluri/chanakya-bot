@@ -7,21 +7,27 @@ const M = require('../messages/index');
 // useful for correlating a session without persisting full PII on hosted log tails.
 const _rd = (p) => (p && p.length > 4) ? '***' + p.slice(-4) : '***';
 
+/**
+ * "Marketplace", not "Corporate Marketplace": WhatsApp caps button titles at 20
+ * characters and sendButtonMessage truncates silently, so the full phrase would
+ * ship as "🛍️ Corporate Marketp". The full name is used in the catalogue header
+ * the moment they tap through, which is where there is room for it.
+ */
 const MENU_BUTTONS = {
   english: [
     { id: 'btn_repair', title: '🔧 Repair My Bag' },
     { id: 'btn_track',  title: '📍 Track My Repair' },
-    { id: 'btn_shop',   title: '🛍️ Shop' },
+    { id: 'btn_shop',   title: '🛍️ Marketplace' },
   ],
   hindi: [
     { id: 'btn_repair', title: '🔧 बैग रिपेयर करें' },
     { id: 'btn_track',  title: '📍 रिपेयर ट्रैक करें' },
-    { id: 'btn_shop',   title: '🛍️ खरीदें' },
+    { id: 'btn_shop',   title: '🛍️ मार्केटप्लेस' },
   ],
   gujarati: [
     { id: 'btn_repair', title: '🔧 બેગ રિપેર કરો' },
     { id: 'btn_track',  title: '📍 રિપેર ટ્રૅક કરો' },
-    { id: 'btn_shop',   title: '🛍️ ખરીદો' },
+    { id: 'btn_shop',   title: '🛍️ માર્કેટપ્લેસ' },
   ],
 };
 

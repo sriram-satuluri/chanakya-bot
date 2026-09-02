@@ -54,9 +54,13 @@ const intentMap = [
   },
   {
     intent: 'shop_catalog',
+    /* 'marketplace' added when the menu button was renamed from Shop — people
+     * type back what the button said. 'shop' stays: the word is still what most
+     * customers use, and the rename is a label change, not a vocabulary one. */
     keywords: ['shop', 'buy', 'kharidna', 'kharido', 'catalog', 'price',
       'kitna', 'kimat', 'rate', 'how much', 'show bags', 'bags dikhao',
-      'luggage', 'backpack', 'trolley', 'handbag',
+      'luggage', 'backpack', 'trolley', 'handbag', 'marketplace',
+      'मार्केटप्लेस', 'માર્કેટપ્લેસ',
       // ── DRAFT — PENDING VEDANT & VATSAL REVIEW (see NATIVE_SCRIPT_DRAFT) ──
       // NB: bare 'बैग' / 'બેગ' deliberately absent — too generic, it appears
       // in repair and tracking messages just as often as in buying ones.

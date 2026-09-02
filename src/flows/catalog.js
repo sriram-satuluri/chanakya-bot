@@ -51,10 +51,13 @@ const SECTION_TITLES = {
   gujarati: { bags: '🎒 બેગ અને ટ્રાવેલ', gifts: '🎁 ગિફ્ટ અને લાઇફસ્ટાઇલ', home:  '🏠 હોમ અને સીઝનલ' },
 };
 
+// The one place with room for the full name — list headers allow 60 characters
+// where buttons allow 20. Tapping "Marketplace" lands here, so this is what
+// establishes what the feature is actually called.
 const HEADER = {
-  english:  '🛍️ Shop at Chanakya',
-  hindi:    '🛍️ Chanakya पर खरीदें',
-  gujarati: '🛍️ Chanakya પર ખરીદો',
+  english:  '🛍️ Corporate Marketplace',
+  hindi:    '🛍️ कॉर्पोरेट मार्केटप्लेस',
+  gujarati: '🛍️ કૉર્પોરેટ માર્કેટપ્લેસ',
 };
 
 const BODY = {
