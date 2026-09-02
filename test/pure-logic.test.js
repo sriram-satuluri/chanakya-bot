@@ -25,7 +25,12 @@ const {
 const { sanitizeTemplateParam, isLikelySendablePhone } = require('../src/services/whatsapp');
 const { isRetryableSheetsError, withSheetsRetry } = require('../src/services/sheets');
 const { detectIntent, intentMap } = require('../src/utils/intentDetect');
-const { getRecipientsForStore, branchSlugFromStoreHint } = require('../src/utils/ownerPhones');
+const {
+  getRecipientsForStore,
+  branchSlugFromStoreHint,
+  getRecipientsForCorporate,
+  getRecipientsForRepair,
+} = require('../src/utils/ownerPhones');
 const { tryParseTicketId, shortTicketCode } = require('../src/utils/ticketParse');
 const { ticketLetterFromStore } = require('../src/utils/ticketId');
 
@@ -202,6 +207,49 @@ test('no store context never guesses a branch owner in', () => {
   delete process.env.BRANCH_OWNER_SURSAGAR;
 });
 
+// ── bulk-order lead routing ───────────────────────────────────
+test('CORPORATE_OWNER_PHONES replaces the general list for bulk leads only', () => {
+  process.env.OWNER_PHONE_TESTA = '911111111111';
+  process.env.CORPORATE_OWNER_PHONES = '919974017727,919974017725';
+
+  // Bulk goes to exactly the two named numbers — the general owner is dropped.
+  assert.deepStrictEqual(
+    getRecipientsForCorporate(),
+    ['919974017727', '919974017725']
+  );
+  // ...but that same general owner still gets every repair ticket.
+  assert.ok(getRecipientsForRepair('alkapuri').includes('911111111111'));
+
+  delete process.env.OWNER_PHONE_TESTA;
+  delete process.env.CORPORATE_OWNER_PHONES;
+});
+
+test('bulk leads fall back to general owners when the override is unset', () => {
+  process.env.OWNER_PHONE_TESTA = '911111111111';
+  delete process.env.CORPORATE_OWNER_PHONES;
+  assert.deepStrictEqual(getRecipientsForCorporate(), ['911111111111']);
+  delete process.env.OWNER_PHONE_TESTA;
+});
+
+test('CORPORATE_OWNER_PHONES tolerates spaces, +, blanks and duplicates', () => {
+  process.env.OWNER_PHONE_TESTA = '911111111111';
+  process.env.CORPORATE_OWNER_PHONES = ' +919974017727 , ,919974017725,919974017727 ';
+  assert.deepStrictEqual(
+    getRecipientsForCorporate(),
+    ['919974017727', '919974017725']
+  );
+  delete process.env.OWNER_PHONE_TESTA;
+  delete process.env.CORPORATE_OWNER_PHONES;
+});
+
+test('an all-garbage CORPORATE_OWNER_PHONES falls back rather than alerting nobody', () => {
+  process.env.OWNER_PHONE_TESTA = '911111111111';
+  process.env.CORPORATE_OWNER_PHONES = 'not-a-number, ,abc';
+  assert.deepStrictEqual(getRecipientsForCorporate(), ['911111111111']);
+  delete process.env.OWNER_PHONE_TESTA;
+  delete process.env.CORPORATE_OWNER_PHONES;
+});
+
 // ── ticket id parsing ─────────────────────────────────────────
 test('tryParseTicketId is forgiving about case, dashes and a TRACK prefix', () => {
   assert.strictEqual(tryParseTicketId('cha-2026-0042'), 'CHA-2026-0042');
@@ -291,6 +339,80 @@ test('user-facing source files keep Devanagari and Gujarati, not mojibake', () =
     assert.equal(mojibake.test(text), false, `${rel} contains mojibake`);
     assert.equal(devanagari.test(text), true, `${rel} lost Devanagari`);
     assert.equal(gujarati.test(text), true, `${rel} lost Gujarati`);
+  }
+});
+
+// ── bulk-order customer-facing copy ───────────────────────────
+const CORPORATE_KEYS = [
+  'corporate_intro', 'corporate_ask_company', 'corporate_ask_name',
+  'corporate_ask_product', 'corporate_ask_quantity', 'corporate_ask_price',
+  'corporate_ask_branding', 'corporate_recap', 'corporate_throttle',
+  'corporate_create_failed', 'corporate_confirmed',
+];
+
+test('bulk contact block is Nilesh then Vatsal, and does not carry Vedant', () => {
+  const { corporateContactBlock } = require('../src/constants/publicContact');
+  const block = corporateContactBlock();
+  assert.ok(block.includes('+91 99740 17727'), 'Nilesh is listed');
+  assert.ok(block.includes('+91 99740 17725'), 'Vatsal is listed');
+  assert.ok(!block.includes('+91 99745 92477'), 'Vedant is NOT on the bulk block');
+  assert.ok(
+    block.indexOf('+91 99740 17727') < block.indexOf('+91 99740 17725'),
+    'Nilesh is listed first',
+  );
+});
+
+test('escalation directory is untouched by the bulk contact change', () => {
+  const { directoryWithEmail } = require('../src/constants/publicContact');
+  const block = directoryWithEmail();
+  assert.ok(block.includes('+91 99745 92477'), 'Vedant still reachable via escalation');
+  assert.ok(block.includes('+91 99740 17725'), 'Vatsal still reachable via escalation');
+});
+
+test('bulk confirmation shows the fixed pair and the marketplace link, in every language', () => {
+  const M = require('../src/messages/index');
+  const { CORPORATE_MARKETPLACE_URL } = require('../src/constants/publicContact');
+  for (const lang of ['english', 'hindi', 'gujarati']) {
+    const body = M.get('corporate_confirmed', lang);
+    assert.ok(body.includes('+91 99740 17727'), `${lang}: Nilesh`);
+    assert.ok(body.includes('+91 99740 17725'), `${lang}: Vatsal`);
+    assert.ok(!body.includes('+91 99745 92477'), `${lang}: Vedant must not appear`);
+    assert.ok(body.includes(CORPORATE_MARKETPLACE_URL), `${lang}: marketplace link`);
+  }
+});
+
+test('the marketplace link is the www host, and the category prompt carries it', () => {
+  const M = require('../src/messages/index');
+  const { CORPORATE_MARKETPLACE_URL } = require('../src/constants/publicContact');
+  assert.strictEqual(CORPORATE_MARKETPLACE_URL, 'https://www.chanakyacorporate.com/product-list');
+  for (const lang of ['english', 'hindi', 'gujarati']) {
+    assert.ok(
+      M.get('corporate_ask_product', lang).includes(CORPORATE_MARKETPLACE_URL),
+      `${lang}: category prompt links to the marketplace`,
+    );
+  }
+});
+
+/* get() silently falls back to English for a missing language, so a dropped
+ * translation ships invisibly. Comparing against the English string is what
+ * makes that visible. */
+test('every bulk-flow message is really translated, not falling back to English', () => {
+  const M = require('../src/messages/index');
+  for (const key of CORPORATE_KEYS) {
+    const en = M.get(key, 'english');
+    assert.ok(!/^\[Missing:/.test(en), `${key} has no English copy`);
+    for (const lang of ['hindi', 'gujarati']) {
+      assert.notStrictEqual(M.get(key, lang), en, `${key} is not translated into ${lang}`);
+    }
+  }
+});
+
+test('the category prompt is no longer bag-only', () => {
+  const M = require('../src/messages/index');
+  const en = M.get('corporate_ask_product', 'english');
+  assert.ok(!/what type of bags/i.test(en), 'old bag-only wording is gone');
+  for (const example of ['Electronics', 'Corporate Gifting', 'Helmets', 'Thermoware']) {
+    assert.ok(en.includes(example), `examples mention ${example}`);
   }
 });
 

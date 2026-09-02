@@ -4,6 +4,8 @@
 const {
   defaultCallLine,
   directoryWithEmail,
+  corporateContactBlock,
+  CORPORATE_MARKETPLACE_URL,
 } = require('../constants/publicContact');
 const {
   DEFAULT_REPAIR_TICKET_STATUS,
@@ -322,10 +324,14 @@ const messages = {
     gujarati:`🚗 *ડ્રાઈવિંગ દિશા — {{storeName}}*\n\nGoogle Maps ખોલો (તમારી લોકેશનથી નેવિગેશન):\n{{url}}\n\n_નીચે ચોખ્ખું પિન પણ છે — Mapsમાં ગમે ત્યારે ખોલી શકાય._`,
   },
 
+  // Broadened beyond bags: Chanakya supplies gifting, appliances and more to
+  // corporate buyers, and leading with "bags" was turning those enquiries away
+  // before the customer reached the category question.
+  // ── hindi/gujarati DRAFT — PENDING VEDANT & VATSAL REVIEW ──
   corporate_intro: {
-    english: `🤝 *Corporate & Bulk Orders*\n\nWe supply bags in bulk to schools, companies, hospitals, and more!\n\nCustom printing available. Let me collect some details to give you the best quote.`,
-    hindi:   `🤝 *कॉर्पोरेट और बल्क ऑर्डर*\n\nहम स्कूल, कंपनी, अस्पताल और अन्य संस्थानों को बल्क में बैग सप्लाई करते हैं!\n\nकस्टम प्रिंटिंग उपलब्ध है। मुझे कुछ जानकारी दें ताकि मैं आपको सर्वोत्तम कोटेशन दे सकूं।`,
-    gujarati:`🤝 *કૉર્પોરેટ અને બલ્ક ઓર્ડર*\n\nઅમે શાળા, કંપની, હૉસ્પિટલ અને બીજે પણ બલ્કમાં બેગ સપ્લાય કરીએ છીએ!\n\nકસ્ટમ પ્રિન્ટિંગ ઉપલબ્ધ છે. શ્રેષ્ઠ ભાવ આપવા માટે મને થોડી વિગતો જણાવો.`,
+    english: `🤝 *Corporate & Bulk Orders*\n\nWe supply bags, corporate gifting, appliances and much more — in bulk to schools, companies, hospitals and beyond!\n\nCustom branding available. Let me collect some details to give you the best quote.`,
+    hindi:   `🤝 *कॉर्पोरेट और बल्क ऑर्डर*\n\nहम स्कूल, कंपनी, अस्पताल और अन्य संस्थानों को बैग, कॉर्पोरेट गिफ्टिंग, अप्लायंसेज़ और भी बहुत कुछ बल्क में सप्लाई करते हैं!\n\nकस्टम ब्रांडिंग उपलब्ध है। मुझे कुछ जानकारी दें ताकि मैं आपको सर्वोत्तम कोटेशन दे सकूं।`,
+    gujarati:`🤝 *કૉર્પોરેટ અને બલ્ક ઓર્ડર*\n\nઅમે શાળા, કંપની, હૉસ્પિટલ અને બીજે પણ બેગ, કૉર્પોરેટ ગિફ્ટિંગ, એપ્લાયન્સિસ અને બીજું ઘણું બલ્કમાં સપ્લાય કરીએ છીએ!\n\nકસ્ટમ બ્રાન્ડિંગ ઉપલબ્ધ છે. શ્રેષ્ઠ ભાવ આપવા માટે મને થોડી વિગતો જણાવો.`,
   },
 
   corporate_ask_company: {
@@ -340,22 +346,52 @@ const messages = {
     gujarati:`સરસ! અને આપનું *નામ*?`,
   },
 
+  // Free text, not a picker — the corporate range is far too wide for a 10-row
+  // WhatsApp list, and buyers routinely ask for something not on any list.
+  // The examples are illustrative, never validated against.
+  // ── hindi/gujarati DRAFT — PENDING VEDANT & VATSAL REVIEW ──
   corporate_ask_product: {
-    english: `What type of bags do you need?\n\n_e.g. School bags, Laptop bags, Travelling bags, Handbags, Corporate gift bags, Custom printed bags_`,
-    hindi:   `आपको किस तरह के बैग चाहिए?\n\n_जैसे: स्कूल बैग, लैपटॉप बैग, ट्रैवलिंग बैग, हैंडबैग, कॉर्पोरेट गिफ्ट बैग_`,
-    gujarati:`આપને કયા પ્રકારની બેગ જોઈએ?\n\n_દા.ત. સ્કૂલ બેગ, લૅપટૉપ બેગ, ટ્રાવેલ બેગ, હૅન્ડબેગ, કૉર્પોરેટ ગિફ્ટ બેગ_`,
+    english: `What do you need?\n\n_e.g. Office Bags, Backpacks, Travel Bags, Electronics, Home & Kitchen Appliances, Corporate Gifting, Monsoon Wear, Helmets, Thermoware, Winter Wear, Men's & Women's Accessories_\n\n🌐 Browse the full range: ${CORPORATE_MARKETPLACE_URL}`,
+    hindi:   `आपको क्या चाहिए?\n\n_जैसे: ऑफिस बैग, बैकपैक, ट्रैवल बैग, इलेक्ट्रॉनिक्स, होम और किचन अप्लायंसेज़, कॉर्पोरेट गिफ्टिंग, मानसून वेयर, हेलमेट, थर्मोवेयर, विंटर वेयर, पुरुषों और महिलाओं की एक्सेसरीज़_\n\n🌐 पूरी रेंज देखें: ${CORPORATE_MARKETPLACE_URL}`,
+    gujarati:`આપને શું જોઈએ?\n\n_દા.ત. ઓફિસ બેગ, બૅકપૅક, ટ્રાવેલ બેગ, ઇલેક્ટ્રોનિક્સ, હોમ અને કિચન એપ્લાયન્સિસ, કૉર્પોરેટ ગિફ્ટિંગ, મૉન્સૂન વેર, હેલ્મેટ, થર્મોવેર, વિન્ટર વેર, પુરુષો અને મહિલાઓની એક્સેસરીઝ_\n\n🌐 સંપૂર્ણ રેન્જ જુઓ: ${CORPORATE_MARKETPLACE_URL}`,
   },
 
+  // "pieces" not "bags" — the category question is no longer bag-only.
+  // ── hindi/gujarati DRAFT — PENDING VEDANT & VATSAL REVIEW ──
   corporate_ask_quantity: {
-    english: `Approximately how many bags do you need?`,
-    hindi:   `आपको लगभग कितने बैग चाहिए?`,
-    gujarati:`આપને લગભગ કેટલી બેગ જોઈએ?`,
+    english: `Approximately how many pieces do you need?`,
+    hindi:   `आपको लगभग कितने पीस चाहिए?`,
+    gujarati:`આપને લગભગ કેટલા પીસ જોઈએ?`,
   },
 
+  /** Asked immediately after quantity. Free text and deliberately forgiving —
+   *  buyers answer with "around 500", "₹450-500", "no idea yet". The value is a
+   *  quoting hint for the owners, never parsed as a number. */
+  // ── hindi/gujarati DRAFT — PENDING VEDANT & VATSAL REVIEW ──
+  corporate_ask_price: {
+    english: `And your approximate *price per piece* (in ₹)?\n\n_A rough figure is fine — it helps us quote the right range._`,
+    hindi:   `और आपका अनुमानित *प्रति पीस मूल्य* (₹ में)?\n\n_अंदाज़न बताएं — इससे हम सही रेंज का कोटेशन दे पाएंगे।_`,
+    gujarati:`અને આપનું અંદાજિત *પ્રતિ પીસ ભાવ* (₹ માં)?\n\n_આશરે જણાવો — તેનાથી અમે યોગ્ય રેન્જનું કોટેશન આપી શકીશું._`,
+  },
+
+  // "products" not "bags", for the same reason as the category question.
+  // ── hindi/gujarati DRAFT — PENDING VEDANT & VATSAL REVIEW ──
   corporate_ask_branding: {
-    english: `Do you need *custom printing/branding* on the bags?\n\n_e.g., company logo, school name_`,
-    hindi:   `क्या बैग पर *कस्टम प्रिंटिंग/ब्रांडिंग* चाहिए?\n\n_जैसे: कंपनी लोगो, स्कूल का नाम_`,
-    gujarati:`શું બેગ પર *કસ્ટમ પ્રિન્ટિંગ/બ્રૅન્ડિંગ* જોઈએ?\n\n_દા.ત. કંપનીનો લૉગો, શાળાનું નામ_`,
+    english: `Do you need *custom printing/branding* on the products?\n\n_e.g., company logo, school name_`,
+    hindi:   `क्या प्रोडक्ट्स पर *कस्टम प्रिंटिंग/ब्रांडिंग* चाहिए?\n\n_जैसे: कंपनी लोगो, स्कूल का नाम_`,
+    gujarati:`શું પ્રોડક્ટ્સ પર *કસ્ટમ પ્રિન્ટિંગ/બ્રૅન્ડિંગ* જોઈએ?\n\n_દા.ત. કંપનીનો લૉગો, શાળાનું નામ_`,
+  },
+
+  /** Pre-submission recap. Shown after the last question, before anything is
+   *  written to Sheets or any owner is pinged — so a typo in the quantity or a
+   *  wrong company name costs a re-tap, not a bad quote. Values are raw
+   *  customer input echoed straight back; safeUserText() is applied later, at
+   *  the Sheets boundary, not here. */
+  // ── hindi/gujarati DRAFT — PENDING VEDANT & VATSAL REVIEW ──
+  corporate_recap: {
+    english: `📋 *Please check your enquiry*\n\n🏢 *Company:* {{company}}\n👤 *Name:* {{name}}\n🛍️ *Requirement:* {{productType}}\n📦 *Quantity:* {{quantity}}\n💰 *Approx price/pc:* {{price}}\n🖨️ *Branding:* {{branding}}\n\nIs everything correct?`,
+    hindi:   `📋 *कृपया अपनी enquiry जांचें*\n\n🏢 *कंपनी:* {{company}}\n👤 *नाम:* {{name}}\n🛍️ *आवश्यकता:* {{productType}}\n📦 *मात्रा:* {{quantity}}\n💰 *अनुमानित प्रति पीस:* {{price}}\n🖨️ *ब्रांडिंग:* {{branding}}\n\nक्या सब सही है?`,
+    gujarati:`📋 *કૃપા કરીને આપની enquiry તપાસો*\n\n🏢 *કંપની:* {{company}}\n👤 *નામ:* {{name}}\n🛍️ *જરૂરિયાત:* {{productType}}\n📦 *જથ્થો:* {{quantity}}\n💰 *અંદાજિત પ્રતિ પીસ:* {{price}}\n🖨️ *બ્રાન્ડિંગ:* {{branding}}\n\nશું બધું બરાબર છે?`,
   },
 
   corporate_throttle: {
@@ -364,10 +400,14 @@ const messages = {
     gujarati:`આપની હાલમાં કરેલી enquiry અમને મળી ગઈ છે — આભાર! અમારી ટીમ ટૂંક સમયમાં સંપર્ક કરશે. નવી વિગત મોકલવી હોય તો કૃપા કરીને થોડી વાર પછી ફરી પ્રયાસ કરો.`,
   },
 
+  // Submission is now a button tap on the recap, not a typed answer. The recap
+  // and its buttons are still on screen and the session still holds the data,
+  // so the recovery action is "tap it again", not "retype the details".
+  // ── hindi/gujarati DRAFT — PENDING VEDANT & VATSAL REVIEW ──
   corporate_create_failed: {
-    english: `Sorry, there was a technical issue saving your enquiry. Please send the branding details again in a few minutes, or call us:\n${defaultCallLine()}`,
-    hindi:   `माफ़ करें, आपकी enquiry सेव नहीं हो पाई। कृपया ब्रांडिंग की जानकारी कुछ मिनट बाद दोबारा भेजें, या कॉल करें:\n${defaultCallLine()}`,
-    gujarati:`માફ કરશો, આપની enquiry સેવ થઈ શકી નહીં. કૃપા કરીને બ્રાન્ડિંગની વિગત થોડી વાર પછી ફરી મોકલો, અથવા કૉલ કરો:\n${defaultCallLine()}`,
+    english: `Sorry, there was a technical issue saving your enquiry. Please tap *Send Enquiry* again in a few minutes, or call us:\n${defaultCallLine()}`,
+    hindi:   `माफ़ करें, आपकी enquiry सेव नहीं हो पाई। कृपया कुछ मिनट बाद दोबारा *enquiry भेजें* पर टैप करें, या कॉल करें:\n${defaultCallLine()}`,
+    gujarati:`માફ કરશો, આપની enquiry સેવ થઈ શકી નહીં. કૃપા કરીને થોડી વાર પછી ફરી *enquiry મોકલો* પર ટૅપ કરો, અથવા કૉલ કરો:\n${defaultCallLine()}`,
   },
 
   ticket_create_failed: {
@@ -382,10 +422,13 @@ const messages = {
     gujarati:`તમે હમણાં જ એક રિપેર બુક કરી છે. બીજી બેગ બુક કરવી હોય તો થોડી મિનિટ રાહ જુઓ — અથવા અમને કૉલ કરો, અમે ઉમેરી દઈશું:\n${defaultCallLine()}`,
   },
 
+  // Contacts here are corporateContactBlock(), NOT the shared directory: bulk
+  // quoting is centralised on Nilesh and Vatsal regardless of store. Escalation
+  // and repair messages still use directoryWithEmail* and are unaffected.
   corporate_confirmed: {
-    english: `✅ *Enquiry Received!*\n\nThank you *{{name}}* from *{{company}}!*\n\nWe'll contact you within *18 hours* with a custom quote.\n\nFor urgent orders:\n${directoryWithEmail()}`,
-    hindi:   `✅ *इन्क्वायरी मिली!*\n\n*{{company}}* से *{{name}}* जी, धन्यवाद!\n\n*18 घंटे* में हम आपसे कस्टम कोटेशन के साथ संपर्क करेंगे।\n\nअर्जेंट ऑर्डर:\n${directoryWithEmail()}`,
-    gujarati:`✅ *એન્ક્વાયરી મળી!*\n\n*{{company}}* થી *{{name}}*, આભાર!\n\n*18 કલાક*માં અમે કસ્ટમ કોટેશન સાથે આપનો સંપર્ક કરીશું.\n\nઅર્જન્ટ ઓર્ડર માટે:\n${directoryWithEmail()}`,
+    english: `✅ *Enquiry Received!*\n\nThank you *{{name}}* from *{{company}}!*\n\nWe'll contact you within *18 hours* with a custom quote.\n\nFor urgent orders:\n${corporateContactBlock()}\n\n🌐 Browse our range: ${CORPORATE_MARKETPLACE_URL}`,
+    hindi:   `✅ *इन्क्वायरी मिली!*\n\n*{{company}}* से *{{name}}* जी, धन्यवाद!\n\n*18 घंटे* में हम आपसे कस्टम कोटेशन के साथ संपर्क करेंगे।\n\nअर्जेंट ऑर्डर:\n${corporateContactBlock()}\n\n🌐 हमारी रेंज देखें: ${CORPORATE_MARKETPLACE_URL}`,
+    gujarati:`✅ *એન્ક્વાયરી મળી!*\n\n*{{company}}* થી *{{name}}*, આભાર!\n\n*18 કલાક*માં અમે કસ્ટમ કોટેશન સાથે આપનો સંપર્ક કરીશું.\n\nઅર્જન્ટ ઓર્ડર માટે:\n${corporateContactBlock()}\n\n🌐 અમારી રેન્જ જુઓ: ${CORPORATE_MARKETPLACE_URL}`,
   },
 
   escalate_message: {

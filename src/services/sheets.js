@@ -680,6 +680,12 @@ async function createLead(data) {
     formatIST(),
     'New',
     '',
+    // M — approx price per piece, asked right after quantity. Free text, so it
+    // gets the same safeUserText treatment as every other customer-typed cell.
+    // Appended at the end rather than reusing the long-empty `budget` column
+    // (G): a per-piece figure and a total budget are different numbers, and
+    // widening the row leaves every existing lead's columns where they are.
+    safeUserText(data.pricePerPiece || '', 200),
   ];
   await appendRow(TABS.LEADS, row);
   return leadId;

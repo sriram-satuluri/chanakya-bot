@@ -89,10 +89,15 @@ const intentMap = [
      * "repairing"), which made 'custom' reach "CUSTOMer care" and drop people
      * asking for support into a bulk-order form. These stems mean what they
      * say; "custom printing" is also already covered by 'printing'. */
+    /* Non-bag corporate categories added alongside the originals — Chanakya
+     * supplies gifting, appliances, helmets and thermoware in bulk, and those
+     * buyers previously landed in fallback. Added, never swapped: removing a
+     * stem here is what caused the shadowing bugs the test suite now guards. */
     keywords: ['bulk', 'corporate', 'wholesale', 'company', 'school', 'office',
       'quantity', 'units', 'bulk order', 'badi quantity', 'printing',
       'branding', 'customis', 'customiz', 'custom print', 'custom bag',
-      'gift', 'large order'],
+      'gift', 'large order',
+      'gifting', 'helmet', 'thermo', 'appliance', 'merchandise'],
     buttonIds: ['btn_corporate', 'flow_corporate'],
   },
   {
@@ -155,6 +160,12 @@ function detectIntent(text, session) {
   // Skipping the optional "who served you" question is a valid answer, not a
   // failure to understand — it must not count toward the fallback counter.
   if (/^btn_skip_staff$/i.test(text) && flow === 'repair') {
+    resetFb();
+    return '__continue_flow__';
+  }
+  // Submitting or restarting at the bulk-order recap is a valid answer, not a
+  // failure to understand — same reasoning as the skip button above.
+  if (/^btn_lead_(submit|restart)$/i.test(text) && flow === 'corporate') {
     resetFb();
     return '__continue_flow__';
   }

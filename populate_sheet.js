@@ -18,7 +18,7 @@ const { google } = require('googleapis');
       // counter outside the table. Q-U drive proactive repair-status updates.
       repair_tickets: ['ticket_id','customer_name','phone','bag_type','problem','store','status','before_photo_url','after_photo_url','created_at','updated_at','estimated_pickup','language','notes','last_reassurance_at','','opted_in','last_status_sent','last_update_sent_at','stop_reason','consecutive_failure_count','picked_up_seen_at','feedback_requested_at','rating','rating_at','served_by'],
       product_catalog: ['product_id','category','brand','name','price_range','in_stock','description_en','description_hi','description_gu','image_url','store_availability'],
-      leads_corporate: ['lead_id','company_name','contact_name','phone','product_type','quantity','budget','branding_needed','contact_time','created_at','status','owner_notes'],
+      leads_corporate: ['lead_id','company_name','contact_name','phone','product_type','quantity','budget','branding_needed','contact_time','created_at','status','owner_notes','price_per_piece'],
       analytics_log: ['timestamp','phone','language','intent','customer_message','bot_response_summary','session_id','escalated_to_human','flow_name','flow_step'],
       broadcast_log: ['broadcast_id','template_name','sent_at','recipients','delivered','replies_received'],
       broadcast_queue: ['campaign_name','template_name','send_at','audience_filter','language','variables_json','status'],

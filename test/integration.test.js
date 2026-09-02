@@ -453,12 +453,15 @@ test('corporate lead is not confirmed, notified, or throttled when createLead fa
   const session = {
     language: 'english',
     currentFlow: 'corporate',
-    flowStep: 'ask_branding',
-    collectedData: { company: 'Acme', name: 'Ravi', productType: 'Bags', quantity: '100' },
+    flowStep: 'confirm_submit',
+    collectedData: {
+      company: 'Acme', name: 'Ravi', productType: 'Office Bags',
+      quantity: '100', pricePerPiece: '450', branding: 'logo on the flap',
+    },
   };
   updateSession(phone, { ...session, lastActivity: Date.now() });
 
-  await handleCorporateFlow(phone, 'logo on the flap', session);
+  await handleCorporateFlow(phone, 'btn_lead_submit', session);
 
   assert.ok(
     sent.some((m) => /technical issue saving your enquiry/i.test(m.body || '')),
@@ -467,7 +470,109 @@ test('corporate lead is not confirmed, notified, or throttled when createLead fa
   assert.ok(!sent.some((m) => /Enquiry Received/i.test(m.body || '')), 'must not confirm a failed write');
   assert.ok(!sent.some((m) => m.to === '919000099999'), 'owners must not be pinged');
   assert.strictEqual(getTimestamp('lead', phone), 0, 'failed write must not start the throttle window');
-  assert.strictEqual(getSession(phone).flowStep, 'ask_branding', 'session stays on branding so they can retry');
+  assert.strictEqual(
+    getSession(phone).flowStep, 'confirm_submit',
+    'session stays on the recap so they can tap Send again',
+  );
+});
+
+test('bulk flow asks price right after quantity and carries it into the lead', async () => {
+  const wp = require.resolve('../src/services/whatsapp');
+  require(wp);
+  const sent = [];
+  require.cache[wp].exports.sendTextMessage = async (to, body) => { sent.push({ body }); return {}; };
+  require.cache[wp].exports.sendButtonMessage = async (to, body, buttons) => {
+    sent.push({ body, buttons: (buttons || []).map((b) => b.id) }); return {};
+  };
+
+  const sp = require.resolve('../src/services/sheets');
+  require(sp);
+  let written = null;
+  require.cache[sp].exports.createLead = async (d) => { written = d; return 'LEAD-TEST-1'; };
+
+  const op = require.resolve('../src/utils/ownerPhones');
+  require(op);
+  const ownerMsgs = [];
+  require.cache[op].exports.getRecipientsForCorporate = () => ['919000099999'];
+  const oa = require.resolve('../src/utils/ownerAlert');
+  require(oa);
+  require.cache[oa].exports.notifyOwners = (to, body) => { ownerMsgs.push(body); };
+
+  delete require.cache[require.resolve('../src/flows/corporate')];
+  const { handleCorporateFlow } = require('../src/flows/corporate');
+  const { getSession, updateSession, clearSession } = require('../src/utils/sessionStore');
+
+  const phone = '919111000303';
+  clearSession(phone);
+  updateSession(phone, {
+    language: 'english', currentFlow: 'corporate', flowStep: 'ask_quantity',
+    collectedData: { company: 'Acme', name: 'Ravi', productType: 'Helmets' },
+    lastActivity: Date.now(),
+  });
+
+  // quantity → must land on the price question, not branding
+  await handleCorporateFlow(phone, '250', getSession(phone));
+  assert.strictEqual(getSession(phone).flowStep, 'ask_price');
+  assert.ok(/price per piece/i.test(sent.at(-1).body), 'price is asked immediately after quantity');
+
+  // price → branding
+  await handleCorporateFlow(phone, '₹450', getSession(phone));
+  assert.strictEqual(getSession(phone).flowStep, 'ask_branding');
+  assert.strictEqual(getSession(phone).collectedData.pricePerPiece, '₹450');
+
+  // branding → recap, and NOTHING written yet
+  await handleCorporateFlow(phone, 'company logo', getSession(phone));
+  assert.strictEqual(getSession(phone).flowStep, 'confirm_submit');
+  assert.strictEqual(written, null, 'recap must not write a lead');
+  const recap = sent.at(-1);
+  assert.deepStrictEqual(recap.buttons, ['btn_lead_submit', 'btn_lead_restart']);
+  for (const expected of ['Acme', 'Ravi', 'Helmets', '250', '₹450', 'company logo']) {
+    assert.ok(recap.body.includes(expected), `recap shows ${expected}`);
+  }
+
+  // submit → lead created carrying the price, owners told the price
+  await handleCorporateFlow(phone, 'btn_lead_submit', getSession(phone));
+  assert.strictEqual(written.pricePerPiece, '₹450', 'price reaches createLead');
+  assert.strictEqual(written.quantity, '250');
+  assert.ok(/450/.test(ownerMsgs.join('\n')), 'owner alert includes the price');
+});
+
+test('start-over at the recap clears the answers and writes nothing', async () => {
+  const wp = require.resolve('../src/services/whatsapp');
+  require(wp);
+  require.cache[wp].exports.sendTextMessage = async () => ({});
+  require.cache[wp].exports.sendButtonMessage = async () => ({});
+
+  const sp = require.resolve('../src/services/sheets');
+  require(sp);
+  let created = 0;
+  require.cache[sp].exports.createLead = async () => { created += 1; return 'LEAD-X'; };
+
+  delete require.cache[require.resolve('../src/flows/corporate')];
+  const { handleCorporateFlow } = require('../src/flows/corporate');
+  const { getSession, updateSession, clearSession } = require('../src/utils/sessionStore');
+
+  const phone = '919111000404';
+  clearSession(phone);
+  updateSession(phone, {
+    language: 'english', currentFlow: 'corporate', flowStep: 'confirm_submit',
+    collectedData: { company: 'Acme', name: 'Ravi', productType: 'Thermoware', quantity: '80', pricePerPiece: '300', branding: 'none' },
+    lastActivity: Date.now(),
+  });
+
+  await handleCorporateFlow(phone, 'btn_lead_restart', getSession(phone));
+  assert.strictEqual(getSession(phone).flowStep, 'ask_company');
+  assert.deepStrictEqual(getSession(phone).collectedData, {}, 'answers are cleared');
+  assert.strictEqual(created, 0, 'restart must not create a lead');
+
+  // A typed reply at the recap re-shows it rather than submitting.
+  updateSession(phone, {
+    flowStep: 'confirm_submit',
+    collectedData: { company: 'Acme', name: 'Ravi', productType: 'Thermoware', quantity: '80', pricePerPiece: '300', branding: 'none' },
+  });
+  await handleCorporateFlow(phone, 'ok', getSession(phone));
+  assert.strictEqual(created, 0, 'a typed "ok" must not create a lead');
+  assert.strictEqual(getSession(phone).flowStep, 'confirm_submit');
 });
 
 test('webhook does not ACK until processing has finished, even if processing throws', async () => {

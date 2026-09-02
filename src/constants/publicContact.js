@@ -81,6 +81,36 @@ function directoryWithEmail() {
   return `${directoryPhonesOnly()}\n\n✉️ chanakyathebagstudio@gmail.com`;
 }
 
+/**
+ * Corporate marketplace, shown in the bulk-order flow only.
+ *
+ * NOTE the domain: this is `www.`, while CATALOG_SITE in constants/
+ * catalogCategories.js (the retail browse flow) and the 🌐 line in
+ * directoryWithEmailAndWebForBranch() are both `front.`. That split is
+ * deliberate for now — the bulk flow was given `www.` explicitly and the retail
+ * flows were left untouched. If the two ever need to agree, change them
+ * together rather than assuming this one is a typo.
+ */
+const CORPORATE_MARKETPLACE_URL = 'https://www.chanakyacorporate.com/product-list';
+
+/**
+ * Contact block for the bulk / corporate confirmation ONLY.
+ *
+ * Fixed and branch-independent by design: a bulk order is quoted centrally, not
+ * by whichever shop is nearest, so the store-conditional directory used for
+ * repairs is the wrong shape here. Nilesh leads because he handles corporate
+ * quoting; Vedant is deliberately absent from THIS block and is unaffected
+ * everywhere else.
+ *
+ * Kept separate from directoryWithEmail() on purpose — that one is shared with
+ * flows/escalate.js, and human-handoff routing must not shift when the bulk
+ * contact list changes.
+ */
+function corporateContactBlock() {
+  const people = [nileshLine(), vatsalLine()].filter(Boolean);
+  return `${people.join('\n')}\n\n✉️ chanakyathebagstudio@gmail.com`;
+}
+
 /** @param {'store_alkapuri'|'store_sursagar'} repairStoreId */
 function branchSlugFromRepairStoreId(repairStoreId) {
   if (repairStoreId === 'store_alkapuri') return 'alkapuri';
@@ -97,5 +127,7 @@ module.exports = {
   directoryWithEmail,
   directoryWithEmailForBranch,
   directoryWithEmailAndWebForBranch,
+  corporateContactBlock,
+  CORPORATE_MARKETPLACE_URL,
   branchSlugFromRepairStoreId,
 };

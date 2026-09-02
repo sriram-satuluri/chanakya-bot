@@ -66,13 +66,46 @@ async function handleCorporateFlow(phone, text, session, intent = null) {
       if (!text || /^(btn_|bag_|prob_|store_|cat_)/.test(text)) {
         return sendTextMessage(phone, M.get('corporate_ask_quantity', lang));
       }
-      updateSession(phone, { flowStep: 'ask_branding', collectedData: { ...data, quantity: text.trim() } });
+      updateSession(phone, { flowStep: 'ask_price', collectedData: { ...data, quantity: text.trim() } });
+      return sendTextMessage(phone, M.get('corporate_ask_price', lang));
+    }
+
+    // Free text on purpose. Buyers answer "around 500", "450-500", "not sure
+    // yet" — all useful to whoever quotes. Parsing it as a number would reject
+    // the honest answers and gain nothing, since nothing computes on it.
+    case 'ask_price': {
+      if (!text || /^(btn_|bag_|prob_|store_|cat_)/.test(text)) {
+        return sendTextMessage(phone, M.get('corporate_ask_price', lang));
+      }
+      updateSession(phone, { flowStep: 'ask_branding', collectedData: { ...data, pricePerPiece: text.trim() } });
       return sendTextMessage(phone, M.get('corporate_ask_branding', lang));
     }
 
     case 'ask_branding': {
       if (!text || /^(btn_|bag_|prob_|store_|cat_)/.test(text)) {
         return sendTextMessage(phone, M.get('corporate_ask_branding', lang));
+      }
+      updateSession(phone, {
+        flowStep: 'confirm_submit',
+        collectedData: { ...data, branding: text.trim() },
+      });
+      return sendRecap(phone, lang, { ...data, branding: text.trim() });
+    }
+
+    /**
+     * Pre-submission gate. Nothing has been written to Sheets and no owner has
+     * been pinged yet — the customer can still fix a typo, and the throttle has
+     * not been consumed, so starting over is free.
+     */
+    case 'confirm_submit': {
+      if (/^btn_lead_restart$/i.test(text)) {
+        updateSession(phone, { flowStep: 'ask_company', collectedData: {} });
+        return sendTextMessage(phone, M.get('corporate_ask_company', lang));
+      }
+      // Anything that isn't an explicit submit re-shows the recap rather than
+      // guessing. A stray "ok" typed instead of tapping must not create a lead.
+      if (!/^btn_lead_submit$/i.test(text)) {
+        return sendRecap(phone, lang, data);
       }
 
       // Anti-spam throttle: same phone can't create more than one lead per hour.
@@ -85,7 +118,7 @@ async function handleCorporateFlow(phone, text, session, intent = null) {
       }
 
       // All collected — create lead
-      const finalData = { ...data, branding: text.trim(), phone, language: lang };
+      const finalData = { ...data, phone, language: lang };
 
       let leadId;
       try {
@@ -107,8 +140,9 @@ async function handleCorporateFlow(phone, text, session, intent = null) {
         `🏢 Company: ${finalData.company}\n` +
         `👤 Contact: ${finalData.name}\n` +
         `📞 Phone: ${phone}\n` +
-        `🎒 Product: ${finalData.productType}\n` +
+        `🛍️ Requirement: ${finalData.productType}\n` +
         `📦 Qty: ${finalData.quantity}\n` +
+        `💰 Approx price/pc: ${finalData.pricePerPiece || '—'}\n` +
         `🖨️ Branding: ${finalData.branding}\n` +
         `🌐 Language: ${lang}`;
 
@@ -145,6 +179,38 @@ async function handleCorporateFlow(phone, text, session, intent = null) {
       const { showMainMenu } = require('./mainMenu');
       return showMainMenu(phone, lang);
   }
+}
+
+/**
+ * Pre-submission recap plus its submit / start-over buttons.
+ *
+ * Called from two places — right after the branding answer, and again whenever
+ * the customer types something at the confirm step instead of tapping — so it
+ * is kept stateless and takes the collected data explicitly.
+ *
+ * Titles are truncated to 20 characters because Meta rejects the whole message
+ * if any button title is longer, and the Gujarati labels sit close to the cap.
+ */
+async function sendRecap(phone, lang, data) {
+  const dash = '—';
+  const body = M.fill(M.get('corporate_recap', lang), {
+    company:     data.company       || dash,
+    name:        data.name          || dash,
+    productType: data.productType   || dash,
+    quantity:    data.quantity      || dash,
+    price:       data.pricePerPiece || dash,
+    branding:    data.branding      || dash,
+  });
+
+  const labels = {
+    english:  [{ id: 'btn_lead_submit', title: '✅ Send Enquiry' },   { id: 'btn_lead_restart', title: '✏️ Start Over' }],
+    hindi:    [{ id: 'btn_lead_submit', title: '✅ enquiry भेजें' },  { id: 'btn_lead_restart', title: '✏️ फिर से शुरू' }],
+    gujarati: [{ id: 'btn_lead_submit', title: '✅ enquiry મોકલો' }, { id: 'btn_lead_restart', title: '✏️ ફરી શરૂ કરો' }],
+  };
+  const buttons = (labels[lang] || labels.english)
+    .map((b) => ({ ...b, title: b.title.substring(0, 20) }));
+
+  return sendButtonMessage(phone, body, buttons);
 }
 
 module.exports = { handleCorporateFlow };
