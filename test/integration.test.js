@@ -59,7 +59,7 @@ test('expired sessions are discarded on load, not resurrected', () => {
   assert.strictEqual(s.currentFlow, null, 'stale flow must not be revived');
 });
 
-test('booking creates the ticket BEFORE the photo, so no photo means no lost booking', async () => {
+test('skipping the photo still creates the ticket, so a bag at home is not a lost booking', async () => {
   // Stub the outside world.
   const wp = require.resolve('../src/services/whatsapp');
   require(wp);
@@ -87,9 +87,6 @@ test('booking creates the ticket BEFORE the photo, so no photo means no lost boo
     currentFlow: 'repair', flowStep: 'ask_store',
     collectedData: { name: 'Ravi', bagType: 'Backpack', problem: 'Zip / Chain Issue' },
   };
-  // Store, then skip the optional "who served you" question — that step sits
-  // between the store picker and the write, and is skippable in one tap
-  // precisely so a booking made from home is never held up by it.
   await handleRepairFlow('919999000003', 'store_alkapuri', 'text', {}, session);
   await handleRepairFlow('919999000003', 'btn_skip_staff', 'interactive', {}, {
     phone: '919999000003', language: 'english',
@@ -99,8 +96,17 @@ test('booking creates the ticket BEFORE the photo, so no photo means no lost boo
       problem: 'Zip / Chain Issue', store: 'store_alkapuri',
     },
   });
+  assert.strictEqual(created.length, 0, 'staff skip must not write the ticket yet');
+  await handleRepairFlow('919999000003', 'btn_skip_photo', 'interactive', {}, {
+    phone: '919999000003', language: 'english',
+    currentFlow: 'repair', flowStep: 'ask_photo',
+    collectedData: {
+      name: 'Ravi', bagType: 'Backpack',
+      problem: 'Zip / Chain Issue', store: 'store_alkapuri', servedBy: '',
+    },
+  });
 
-  assert.strictEqual(created.length, 1, 'ticket created from four answers alone');
+  assert.strictEqual(created.length, 1, 'ticket created after skipping the photo');
   assert.strictEqual(created[0].ticketId, 'CHA-2026-0500');
   assert.strictEqual(created[0].beforePhotoUrl, '', 'photo intentionally empty at creation');
   assert.ok(

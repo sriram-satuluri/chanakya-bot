@@ -227,19 +227,15 @@ const messages = {
     gujarati:`*{{bagType}}* નોંધ કર્યું. તેમાં શું સમસ્યા છે?`,
   },
 
-  // NB: the old ask_photo / photo_received keys were removed when the photo
-  // moved to AFTER ticket creation. photo_received in particular used to lead
-  // the store menu and announced a photo that had not arrived yet. Their
-  // replacements are photo_request_after_ticket / photo_attached below.
+  // Photo is asked after the staff-name question and before the ticket is
+  // written, with a one-tap skip so a bag that isn't to hand never blocks booking.
 
-  /** Optional last step: who in the shop is helping this customer.
-   *  Skippable in one tap, because most bookings are made from home with no
-   *  staff member involved and those customers must not be made to answer a
-   *  question that does not apply to them. */
+  /** Who in the shop is helping this customer. Skippable in one tap, because
+   *  most bookings are made from home with no staff member involved. */
   ask_salesperson: {
-    english: `Last thing — if a *Chanakya team member* is helping you in store, type their *name* so we can assign this ticket to them.\n\nOtherwise just tap *Skip*.`,
-    hindi:   `आख़िरी बात — अगर स्टोर में हमारी *टीम का कोई सदस्य* आपकी मदद कर रहा है, तो उनका *नाम* लिखें ताकि यह टिकट उन्हें सौंपा जा सके।\n\nवरना *स्किप* दबाएं।`,
-    gujarati:`છેલ્લી વાત — જો સ્ટોરમાં *અમારી ટીમનું કોઈ સભ્ય* આપની મદદ કરી રહ્યું હોય, તો તેમનું *નામ* લખો જેથી આ ટિકિટ તેમને સોંપાય.\n\nનહીંતર *સ્કિપ* દબાવો.`,
+    english: `If a *Chanakya team member* is helping you in store, type their *name* so we can assign this ticket to them.\n\nOtherwise just tap *Skip*.`,
+    hindi:   `अगर स्टोर में हमारी *टीम का कोई सदस्य* आपकी मदद कर रहा है, तो उनका *नाम* लिखें ताकि यह टिकट उन्हें सौंपा जा सके।\n\nवरना *स्किप* दबाएं।`,
+    gujarati:`જો સ્ટોરમાં *અમારી ટીમનું કોઈ સભ્ય* આપની મદદ કરી રહ્યું હોય, તો તેમનું *નામ* લખો જેથી આ ટિકિટ તેમને સોંપાય.\n\nનહીંતર *સ્કિપ* દબાવો.`,
   },
 
   repair_confirmed: {
@@ -552,30 +548,41 @@ const messages = {
 
   // ── Proactive repair-update opt-in (per ticket) ──
   repair_updates_ask: {
-    english: `🔔 Would you like *WhatsApp updates* as your repair progresses?\n\nOr you can simply check anytime yourself by tapping *Track My Repair*.`,
-    hindi:   `🔔 क्या आप रिपेयर की प्रगति पर *WhatsApp अपडेट* चाहेंगे?\n\nया आप कभी भी *ट्रैक करें* पर टैप करके खुद देख सकते हैं।`,
-    gujarati:`🔔 શું તમે રિપેરની પ્રગતિ પર *WhatsApp અપડેટ* ઈચ્છો છો?\n\nઅથવા તમે ગમે ત્યારે *ટ્રૅક કરો* પર ટૅપ કરીને જાતે જોઈ શકો છો.`,
+    english: `🔔 Would you like *repair reminders* on WhatsApp?\n\nWe'll message you when the ticket status changes, and once a day if nothing has changed.\n\nYou'll still hear from us when the bag is *ready for pickup* or the ticket is *closed* — even if you tap No.`,
+    hindi:   `🔔 क्या आप WhatsApp पर *रिपेयर रिमाइंडर* चाहेंगे?\n\nटिकट की स्थिति बदलने पर हम मैसेज करेंगे, और अगर कोई बदलाव न हो तो दिन में एक बार।\n\nबैग *पिकअप के लिए तैयार* होने या टिकट *बंद* होने पर हम वैसे भी बताएंगे — *नहीं* दबाने पर भी।`,
+    gujarati:`🔔 શું તમે WhatsApp પર *રિપેર રિમાઇન્ડર* ઈચ્છો છો?\n\nટિકિટની સ્થિતિ બદલાય ત્યારે અમે મેસેજ કરીશું, અને કશું ન બદલાય તો દિવસમાં એક વાર.\n\nબેગ *પિકઅપ માટે તૈયાર* થાય કે ટિકિટ *બંધ* થાય ત્યારે અમે તેમ છતાં જણાવીશું — *ના* દબાવો તો પણ.`,
   },
 
   repair_updates_on_confirm: {
-    english: `✅ Done — we'll message you here as your repair moves forward.\n\nReply *stop updates* anytime to turn these off.`,
-    hindi:   `✅ हो गया — रिपेयर आगे बढ़ने पर हम आपको यहीं मैसेज करेंगे।\n\nबंद करने के लिए कभी भी *अपडेट बंद* भेजें।`,
-    gujarati:`✅ થઈ ગયું — રિપેર આગળ વધતાં અમે તમને અહીં મેસેજ કરીશું.\n\nબંધ કરવા ગમે ત્યારે *અપડેટ બંધ* મોકલો.`,
+    english: `✅ Done — we'll message you when the status changes, and once a day if nothing has changed.\n\nReply *stop updates* anytime to turn these off.`,
+    hindi:   `✅ हो गया — स्थिति बदलने पर हम मैसेज करेंगे, और अगर कोई बदलाव न हो तो दिन में एक बार।\n\nबंद करने के लिए कभी भी *अपडेट बंद* भेजें।`,
+    gujarati:`✅ થઈ ગયું — સ્થિતિ બદલાય ત્યારે અમે મેસેજ કરીશું, અને કશું ન બદલાય તો દિવસમાં એક વાર.\n\nબંધ કરવા ગમે ત્યારે *અપડેટ બંધ* મોકલો.`,
   },
 
   repair_updates_off_confirm: {
-    english: `✅ Repair updates turned off. You can still check anytime with *track*, and reply *resume updates* to turn them back on.`,
-    hindi:   `✅ रिपेयर अपडेट बंद कर दिए गए। *track* लिखकर कभी भी देख सकते हैं, और *अपडेट चालू* भेजकर दोबारा चालू कर सकते हैं।`,
-    gujarati:`✅ રિપેર અપડેટ બંધ કરી દીધા. *track* લખીને ગમે ત્યારે જોઈ શકો છો, અને *અપડેટ ચાલુ* મોકલીને ફરી ચાલુ કરી શકો છો.`,
+    english: `✅ Repair updates turned off. You can still check anytime with *track*, and reply *resume updates* to turn them back on.\n\nWe'll still message you when the bag is ready for pickup or the ticket is closed.`,
+    hindi:   `✅ रिपेयर अपडेट बंद कर दिए गए। *track* लिखकर कभी भी देख सकते हैं, और *अपडेट चालू* भेजकर दोबारा चालू कर सकते हैं।\n\nबैग तैयार होने या टिकट बंद होने पर हम वैसे भी मैसेज करेंगे।`,
+    gujarati:`✅ રિપેર અપડેટ બંધ કરી દીધા. *track* લખીને ગમે ત્યારે જોઈ શકો છો, અને *અપડેટ ચાલુ* મોકલીને ફરી ચાલુ કરી શકો છો.\n\nબેગ તૈયાર થાય કે ટિકિટ બંધ થાય ત્યારે અમે તેમ છતાં મેસેજ કરીશું.`,
   },
 
-  // ── Photo, requested AFTER the ticket exists ──
-  /** Asked once the ticket is safely created, so it is genuinely optional and
-   *  nobody is ever blocked from booking by a bag they don't have to hand. */
-  photo_request_after_ticket: {
-    english: `📸 One last thing — if your bag is with you, send a *photo* of the damage and we'll add it to your ticket.\n\nNo rush: send it any time before you drop the bag off, or just show us at the counter.`,
-    hindi:   `📸 आख़िरी बात — अगर बैग आपके पास है तो नुकसान की *फोटो* भेज दें, हम टिकट में जोड़ देंगे।\n\nजल्दी नहीं: ड्रॉप-ऑफ से पहले कभी भी भेज सकते हैं, या काउंटर पर दिखा दीजिए।`,
-    gujarati:`📸 છેલ્લી વાત — જો બેગ તમારી પાસે હોય તો નુકસાનની *ફોટો* મોકલો, અમે ટિકિટમાં ઉમેરી દઈશું.\n\nઉતાવળ નથી: ડ્રોપ-ઓફ પહેલાં ગમે ત્યારે મોકલો, અથવા કાઉન્ટર પર બતાવજો.`,
+  /** First-time "No" on the post-booking reminder question (not the standing command). */
+  repair_updates_declined: {
+    english: `No problem — we won't send progress reminders.\n\nWe'll still message you here when the bag is *ready for pickup* or the ticket is *closed*. Track anytime with *track*.`,
+    hindi:   `कोई बात नहीं — प्रगति के रिमाइंडर नहीं भेजेंगे।\n\nबैग *पिकअप के लिए तैयार* होने या टिकट *बंद* होने पर हम यहाँ मैसेज करेंगे। कभी भी *track* लिखकर देख सकते हैं।`,
+    gujarati:`વાંધો નહીં — પ્રગતિના રિમાઇન્ડર નહીં મોકલીએ.\n\nબેગ *પિકઅપ માટે તૈયાર* થાય કે ટિકિટ *બંધ* થાય ત્યારે અમે અહીં મેસેજ કરીશું. ગમે ત્યારે *track* લખીને જોઈ શકો છો.`,
+  },
+
+  // ── Photo, asked after staff assignment, before the ticket is written ──
+  photo_ask_after_staff: {
+    english: `📸 If the bag is with you, *take a photo* of the damage (or pick one from your gallery) and send it here.\n\nIf you'll upload it later, tap *Upload later* — the ticket will still be created.`,
+    hindi:   `📸 अगर बैग आपके पास है तो नुकसान की *फोटो* लें (या गैलरी से चुनें) और यहाँ भेज दें।\n\nबाद में भेजनी हो तो *बाद में भेजें* दबाएं — टिकट वैसे भी बन जाएगा।`,
+    gujarati:`📸 જો બેગ તમારી પાસે હોય તો નુકસાનની *ફોટો* લો (અથવા ગેલેરીમાંથી પસંદ કરો) અને અહીં મોકલો.\n\nપછી મોકલવી હોય તો *પછી મોકલશો* દબાવો — ટિકિટ તેમ છતાં બનશે.`,
+  },
+
+  photo_awaiting_capture: {
+    english: `Great — send the photo now using the 📎 / camera icon.\n\nOr tap *Upload later* if you'll send it after booking.`,
+    hindi:   `बढ़िया — अभी 📎 / कैमरा से फोटो भेज दें।\n\nबाद में भेजनी हो तो *बाद में भेजें* दबाएं।`,
+    gujarati:`સરસ — હમણાં 📎 / કૅમેરાથી ફોટો મોકલો.\n\nપછી મોકલવી હોય તો *પછી મોકલશો* દબાવો.`,
   },
 
   photo_attached: {

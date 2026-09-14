@@ -12,6 +12,7 @@
     "verify:meta": "node scripts/verify-meta-token.js",
     "verify:sheet": "node verify_sheet.js",
     "sheet:status-dropdown": "node scripts/apply-repair-status-dropdown.js",
+    "sheet:protect": "node scripts/apply-repair-sheet-protection.js",
     "test": "node --test test/*.test.js",
     "funnel": "node scripts/funnel-report.js",
     "sheet:orphans": "node scripts/orphan-tickets.js"

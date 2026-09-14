@@ -14,6 +14,7 @@ const {
 const M = require('../messages/index');
 const {
   canonicalStatus, terminalStopReason, DEFAULT_REPAIR_TICKET_STATUS,
+  isMandatoryCustomerNotifyStatus,
 } = require('../constants/repairTicketStatuses');
 const { istHour, formatIST } = require('../utils/istTime');
 
@@ -30,6 +31,10 @@ const { istHour, formatIST } = require('../utils/istTime');
  * the single source of truth, so this survives a redeploy with no local
  * snapshot file to keep in sync.
  *
+ * Progress reminders (status change + a daily nudge) only go to opted-in
+ * tickets. Ready-for-pickup and closed (Picked Up / Cannot Repair) always
+ * notify, even if they declined reminders.
+ *
  * EXTERNAL SETUP REQUIRED: three Utility templates must exist and be approved
  * in Meta Business Manager (en/hi/gu), each taking four body variables:
  *   {{1}} customer name · {{2}} ticket id · {{3}} current status · {{4}} store
@@ -41,8 +46,9 @@ const { istHour, formatIST } = require('../utils/istTime');
 const QUIET_START_HOUR = envInt('PROACTIVE_START_HOUR', 10, { min: 0, max: 23 });
 const QUIET_END_HOUR = envInt('PROACTIVE_END_HOUR', 19, { min: 0, max: 24 });
 
-/** No status change for this many days → send a "still in progress" nudge. */
-const NUDGE_AFTER_DAYS = envInt('REPAIR_UPDATE_NUDGE_DAYS', 3, { min: 0 });
+/** No status change for this many hours → send a "still in progress" nudge
+ *  (opted-in tickets only). 0 disables nudges. */
+const NUDGE_AFTER_HOURS = envInt('REPAIR_UPDATE_NUDGE_HOURS', 24, { min: 0 });
 
 /** Consecutive send failures for a number before we stop trying for that ticket. */
 const MAX_CONSECUTIVE_FAILURES = 3;
@@ -56,7 +62,7 @@ const MAX_CONSECUTIVE_FAILURES = 3;
  */
 const MIN_RESEND_GAP_MS = 10 * 60 * 1000;
 
-const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
 
 /** Redacted by default; set PROACTIVE_LOG_FULL_PHONE=true if you need raw
  *  numbers in logs for billing reconciliation. The wamid is logged either way
@@ -74,23 +80,28 @@ function withinSendWindow(now = new Date()) {
 
 /**
  * Decide whether this ticket is due for a send right now.
- * @returns {{send: boolean, reason?: string, skip?: string}}
+ * @returns {{send: boolean, reason?: string, skip?: string, terminal?: string|null, stopReason?: string, baselineStatus?: string}}
  */
 function decideAction(t, now) {
   const status = canonicalStatus(t.status);
   const lastSent = canonicalStatus(t.lastStatusSent);
   const statusChanged = Boolean(status) && status !== lastSent;
   const terminal = terminalStopReason(status);
-
-  // Already collected — nothing useful left to say; close the ticket quietly.
-  // (A "your bag is ready" message here would be wrong, they already have it.)
-  if (terminal === 'completed' && status === 'Picked Up') {
-    return { send: false, skip: 'picked_up', stopReason: 'completed' };
-  }
+  const optedIn = t.optedIn !== false;
+  const mandatory = isMandatoryCustomerNotifyStatus(status);
 
   // Idempotency: recently sent, regardless of what the status looks like.
   if (t.lastUpdateSentAt && (now - t.lastUpdateSentAt.getTime()) < MIN_RESEND_GAP_MS) {
     return { send: false, skip: 'recently_sent' };
+  }
+
+  // Already told them about THIS status (ready / closed / collected).
+  if (terminal && lastSent === status) {
+    return {
+      send: false,
+      skip: status === 'Picked Up' ? 'picked_up' : 'already_final',
+      stopReason: terminal,
+    };
   }
 
   // Bootstrap: nothing sent yet AND the ticket is still at its creation
@@ -99,24 +110,29 @@ function decideAction(t, now) {
   // silently so the FIRST genuine status change is what reaches them.
   // (If they opted in later, when the repair had already progressed, status
   // won't be the default and they correctly get a catch-up message.)
-  if (!t.lastStatusSent && status === canonicalStatus(DEFAULT_REPAIR_TICKET_STATUS)) {
+  if (optedIn && !t.lastStatusSent && status === canonicalStatus(DEFAULT_REPAIR_TICKET_STATUS)) {
     return { send: false, skip: 'bootstrap', baselineStatus: status };
   }
 
-  if (statusChanged) return { send: true, reason: 'status_change', terminal };
-
-  // No change — is it time for a periodic reassurance nudge? Never nudge a
-  // ticket that has already reached a terminal status.
-  if (!terminal) {
-    const since = t.lastUpdateSentAt ? t.lastUpdateSentAt.getTime() : null;
-    if (since && (now - since) >= NUDGE_AFTER_DAYS * DAY_MS) {
-      return { send: true, reason: 'nudge', terminal: null };
-    }
-    // Never sent anything yet and status hasn't moved from what staff set at
-    // creation: wait for the first real change rather than pinging immediately.
+  if (statusChanged && (optedIn || mandatory)) {
+    return {
+      send: true,
+      reason: (!optedIn && mandatory) ? 'mandatory' : 'status_change',
+      terminal,
+    };
   }
 
-  return { send: false, skip: 'no_change' };
+  // No change — is it time for a periodic reassurance nudge? Opted-in only,
+  // and never nudge a ticket that has already reached a terminal status.
+  if (optedIn && !terminal && NUDGE_AFTER_HOURS > 0) {
+    const since = t.lastUpdateSentAt || t.createdAt;
+    const sinceMs = since && typeof since.getTime === 'function' ? since.getTime() : null;
+    if (sinceMs && (now - sinceMs) >= NUDGE_AFTER_HOURS * HOUR_MS) {
+      return { send: true, reason: 'nudge', terminal: null };
+    }
+  }
+
+  return { send: false, skip: optedIn ? 'no_change' : 'not_opted_in' };
 }
 
 async function pollStatusChanges() {
@@ -141,7 +157,7 @@ async function pollStatusChanges() {
   }
 
   if (tickets.length === 0) {
-    console.log('[PROACTIVE] No opted-in tickets to consider.');
+    console.log('[PROACTIVE] No tickets to consider.');
     return;
   }
 
@@ -232,7 +248,10 @@ async function pollStatusChanges() {
       }
     } else {
       failed++;
-      const nextFailures = (t.failureCount || 0) + 1;
+      // A new status deserves a fresh attempt budget — leftover failures from
+      // a previous status must not immediately auto-unsubscribe this one.
+      const newStatusAttempt = canonicalStatus(t.lastStatusSent) !== canonicalStatus(t.status);
+      const nextFailures = newStatusAttempt ? 1 : (t.failureCount || 0) + 1;
       const metaErr = sendError.response?.data?.error || {};
       console.error(
         `[PROACTIVE] ticket=${t.ticketId} phone=${logPhone(t.phone)} lang=${lang} `
@@ -243,20 +262,20 @@ async function pollStatusChanges() {
       if (nextFailures >= MAX_CONSECUTIVE_FAILURES) {
         patch.optedIn = false;
         patch.stopReason = 'delivery_failed';
+        // Record the status as handled so a mandatory ticket doesn't retry
+        // the same undeliverable send forever. A later status change still
+        // notifies (lastStatusSent !== new status).
+        patch.statusSent = t.status;
         stopped++;
         autoUnsubscribed.push({
           ticketId: t.ticketId,
           phone: t.phone,
           lastError: `${metaErr.code ?? '?'}: ${sendError.message}`,
         });
-        // Distinct, greppable tag for the OUTCOME (not the cause). Two
-        // different bugs have already produced this same silent unsubscribe
-        // via different routes, so the outcome itself is what gets alarmed —
-        // any future cause we haven't predicted still surfaces here.
         console.error(
           `[AUTO-UNSUBSCRIBE] ticket=${t.ticketId} phone=${logPhone(t.phone)} `
           + `reason=delivery_failed failures=${nextFailures} lastError="${metaErr.code ?? '?'}: ${sendError.message}" `
-          + `— customer opted IN but will no longer receive updates. Investigate.`,
+          + `— this status will not be retried. Investigate.`,
         );
       }
     }

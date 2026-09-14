@@ -245,9 +245,12 @@ phone | language | joined_at | opted_in | name
    * `Ready for Pickup`
    * `Picked Up`
    * `Cannot Repair`
-4. Within **15 minutes** (during 10:00–19:00 IST), if the customer opted in **and** `REPAIR_UPDATE_TEMPLATE_*` is set to approved Meta names, they get a WhatsApp Utility template. Otherwise they can still *Track My Repair* for free.
+4. Within **15 minutes** (during 10:00–19:00 IST), if `REPAIR_UPDATE_TEMPLATE_*` is set to approved Meta names:
+   * **Opted in** — they get a WhatsApp when column G changes, and a nudge once every 24 hours if nothing changed.
+   * **Everyone** — they get a WhatsApp when the status is **Ready for Pickup**, **Picked Up** (ticket closed), or **Cannot Repair**, even if they tapped No on reminders.
+   * Otherwise they can still *Track My Repair* for free.
 
-**Do not type a custom status.** Use the column G dropdown (`npm run sheet:status-dropdown`). After-photos (column I) are for staff; they are not auto-sent as a WhatsApp image.
+**Do not type a custom status.** Use the column G dropdown (`npm run sheet:status-dropdown`). Lock staff to that column with `npm run sheet:protect`. After-photos (column I) are for staff; they are not auto-sent as a WhatsApp image.
 
 \---
 
@@ -369,7 +372,8 @@ src/
 
 **Status updates not sending?**
 
-* Customer must have tapped "Yes, update me" after booking
+* Progress reminders require "Yes, update me" after booking
+* Ready for pickup / ticket closed (Picked Up, Cannot Repair) send even without that opt-in
 * `REPAIR_UPDATE_TEMPLATE_EN/HI/GU` must be set to **approved** Meta template names
 * Quiet hours are 10:00–19:00 IST; cron polls every 15 minutes on column G
 * Staff must use the column G dropdown, not free-typed wording

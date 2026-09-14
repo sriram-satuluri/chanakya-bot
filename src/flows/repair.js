@@ -8,9 +8,10 @@ const { notifyOwners } = require('../utils/ownerAlert');
 const { updateSession, clearSession } = require('../utils/sessionStore');
 const {
   branchSlugFromRepairStoreId,
-  directoryWithEmailAndWebForBranch,
-  directoryWithEmailForBranch,
+  ticketContactWithEmailAndWebForBranch,
+  ticketContactWithEmailForBranch,
 } = require('../constants/publicContact');
+const { uploadInboundRepairPhoto } = require('./latePhoto');
 const { showMainMenu } = require('./mainMenu');
 const { handleEscalation } = require('./escalate');
 const { askRepairUpdatesOptIn } = require('./repairUpdates');
@@ -205,7 +206,7 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
       return sendSalespersonPrompt(phone, lang);
     }
 
-    // ── Step 5 (final): optional staff name → create the ticket ──
+    // ── Step 5: optional staff name → then the photo ──────────
     case 'ask_salesperson': {
       const store = data.store;
       if (!store) {
@@ -219,27 +220,19 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
       // never block it over an optional field, so anything unusable is simply
       // treated as "no staff member" rather than re-prompted.
       const servedBy = looksLikeStaffName(text) ? text.trim() : '';
+      const nextData = { ...data, servedBy, store };
+      updateSession(phone, { flowStep: 'ask_photo', collectedData: nextData });
 
-      // In-flight lock. The throttle below is a check-then-act pair with two
-      // awaits between the read and the write, so two taps landing in the same
-      // window BOTH passed it and BOTH created a ticket — different ids, two
-      // owner alerts, two rows that do not look like duplicates. Double-tapping
-      // a WhatsApp button is completely ordinary, so this was not theoretical.
-      //
-      // Synchronous claim, so nothing can interleave between test and set.
-      // In-process is sufficient: the service is pinned to one replica
-      // (railway.json numReplicas: 1), the same assumption utils/ticketId.js
-      // already makes for the counter mutex.
-      if (_ticketInFlight.has(phone)) {
-        console.warn(`[TICKET] Concurrent create ignored for ${_rp(phone)} — one already in flight`);
-        return; // the in-flight request is about to reply; a second reply would confuse
+      // They sent a photo instead of a name — treat it as skip-staff + photo.
+      if (text === '__IMAGE__') {
+        return handleAskPhoto(phone, text, rawMessage, nextData, lang);
       }
-      _ticketInFlight.add(phone);
-      try {
-        return await createTicketForStore(phone, store, { ...data, servedBy }, lang);
-      } finally {
-        _ticketInFlight.delete(phone);
-      }
+      return sendPhotoPrompt(phone, lang);
+    }
+
+    // ── Step 6 (final): take a photo or skip → create the ticket ──
+    case 'ask_photo': {
+      return handleAskPhoto(phone, text, rawMessage, data, lang);
     }
 
     default:
@@ -253,6 +246,60 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
  * and the sheet write. Held for milliseconds; the finally always clears it.
  */
 const _ticketInFlight = new Set();
+
+function isPhotoSkip(text) {
+  const t = String(text || '').trim().toLowerCase();
+  if (!t || t === '__image__') return false;
+  if (t === 'btn_skip_photo' || t === 'btn_skip_staff') return true;
+  if (t === 'skip' || t === 'later' || t === 'upload later') return true;
+  if (t === 'बाद में भेजें' || t === 'પછી મોકલશો') return true;
+  return false;
+}
+
+function isTakePhotoTap(text) {
+  return String(text || '').trim().toLowerCase() === 'btn_take_photo';
+}
+
+/**
+ * Last booking step: a photo with a one-tap skip, then the ticket is written.
+ * Skip is what keeps a bag-at-home from blocking the booking. A photo sent
+ * later still files against the ticket via flows/latePhoto.js.
+ */
+async function handleAskPhoto(phone, text, rawMessage, data, lang) {
+  const store = data.store;
+  if (!store) {
+    updateSession(phone, { flowStep: 'ask_store' });
+    return sendStoreMenu(phone, lang);
+  }
+
+  if (isTakePhotoTap(text)) {
+    return sendPhotoPrompt(phone, lang, true);
+  }
+
+  let beforePhotoUrl = '';
+  if (text === '__IMAGE__') {
+    try {
+      beforePhotoUrl = (await uploadInboundRepairPhoto(rawMessage)) || '';
+    } catch (e) {
+      console.error(`[REPAIR] Photo upload failed for ${_rp(phone)}:`, e.message);
+      // Still book — the photo is optional; they can send it later or show it
+      // at the counter.
+    }
+  } else if (!isPhotoSkip(text)) {
+    return sendPhotoPrompt(phone, lang);
+  }
+
+  if (_ticketInFlight.has(phone)) {
+    console.warn(`[TICKET] Concurrent create ignored for ${_rp(phone)} — one already in flight`);
+    return;
+  }
+  _ticketInFlight.add(phone);
+  try {
+    return await createTicketForStore(phone, store, { ...data, beforePhotoUrl }, lang);
+  } finally {
+    _ticketInFlight.delete(phone);
+  }
+}
 
 /** The body of the final booking step, extracted so the lock above can wrap it. */
 async function createTicketForStore(phone, store, data, lang) {
@@ -268,13 +315,9 @@ async function createTicketForStore(phone, store, data, lang) {
         return sendTextMessage(phone, M.get('ticket_throttle', lang));
       }
 
-      // All four answers collected — create the ticket NOW.
-      // The photo is deliberately not required here: those four facts are
-      // everything the shop needs, and holding them in an in-memory session
-      // until an optional photo arrives meant a redeploy (or a customer whose
-      // bag is at home) silently destroyed the whole booking. The photo is
-      // requested straight after and can arrive at any time later — see
-      // findRecentTicketAwaitingPhoto / the late-photo handler in the webhook.
+      // All answers collected — create the ticket NOW.
+      // The photo is optional: skip writes an empty URL, and a late photo still
+      // files against this row via findRecentTicketAwaitingPhoto.
       const storeName = STORE_NAMES[store];
       let ticketId;
       try {
@@ -286,7 +329,7 @@ async function createTicketForStore(phone, store, data, lang) {
           bagType:        data.bagType,
           problem:        data.problem,
           store:          storeName,
-          beforePhotoUrl: '',   // arrives later
+          beforePhotoUrl: data.beforePhotoUrl || '',
           language:       lang,
           servedBy:       data.servedBy || '',   // blank unless booked in store
         });
@@ -308,7 +351,7 @@ async function createTicketForStore(phone, store, data, lang) {
           // Only shown when someone actually served them in store — an
           // "Assigned to: —" line on every home booking is just noise.
           (data.servedBy ? `🧑‍💼 *Assigned to:* ${data.servedBy}\n` : '') +
-          `📸 *Photo:* awaiting — customer asked to send one\n` +
+          (data.beforePhotoUrl ? `📸 *Photo:* ${data.beforePhotoUrl}\n` : `📸 *Photo:* customer will send later\n`) +
           `🌐 *Language:* ${lang}`;
         // Notify general owners + any branch-specific owner (Nilesh for Sursagar, etc.)
         const branchSlugForAlerts = branchSlugFromRepairStoreId(store);
@@ -343,16 +386,16 @@ async function createTicketForStore(phone, store, data, lang) {
       if (branchSlug) {
         const contactBody =
           lang === 'english'
-            ? directoryWithEmailAndWebForBranch(branchSlug)
-            : directoryWithEmailForBranch(branchSlug);
+            ? ticketContactWithEmailAndWebForBranch(branchSlug)
+            : ticketContactWithEmailForBranch(branchSlug);
         parts.push(M.fill(M.get('contact_for_store', lang), { storeName, contactBody }));
       }
 
       clearSession(phone);
       await sendTextMessage(phone, parts.join('\n\n'));
 
-      // Then the opt-in question. Its answer buttons double as the exit, so
-      // this is the second and final message of the booking.
+      // Then the reminders question. Its answer buttons double as the exit, so
+      // this is the second and final message of the booking tail.
       return askRepairUpdatesOptIn(phone, lang, ticketId);
 }
 
@@ -390,13 +433,6 @@ async function sendProblemMenu(phone, lang, bagType) {
 }
 
 /**
- * Store picker — the last question before the ticket is created.
- *
- * Deliberately says nothing about a photo: the photo is now requested AFTER
- * the ticket exists, so the old "Photo received! ✅" wording that used to lead
- * this message was claiming something that hadn't happened yet.
- */
-/**
  * Ask who on the shop floor is helping, with a one-tap way out.
  *
  * Most bookings are made from home with no staff member involved, so this has
@@ -413,6 +449,27 @@ async function sendSalespersonPrompt(phone, lang) {
   return sendButtonMessage(phone, M.get('ask_salesperson', lang), [
     { id: 'btn_skip_staff', title: (skip[lang] || skip.english).substring(0, 20) },
   ]);
+}
+
+const PHOTO_BUTTONS = {
+  english:  [
+    { id: 'btn_take_photo', title: '📸 Take photo' },
+    { id: 'btn_skip_photo', title: 'Upload later' },
+  ],
+  hindi:    [
+    { id: 'btn_take_photo', title: '📸 फोटो भेजें' },
+    { id: 'btn_skip_photo', title: 'बाद में भेजें' },
+  ],
+  gujarati: [
+    { id: 'btn_take_photo', title: '📸 ફોટો મોકલો' },
+    { id: 'btn_skip_photo', title: 'પછી મોકલશો' },
+  ],
+};
+
+async function sendPhotoPrompt(phone, lang, awaitingCapture = false) {
+  const key = awaitingCapture ? 'photo_awaiting_capture' : 'photo_ask_after_staff';
+  const buttons = PHOTO_BUTTONS[lang] || PHOTO_BUTTONS.english;
+  return sendButtonMessage(phone, M.get(key, lang), buttons);
 }
 
 async function sendStoreMenu(phone, lang) {

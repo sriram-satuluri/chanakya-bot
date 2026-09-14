@@ -18,7 +18,7 @@ const { google } = require('googleapis');
 const { parseISTString } = require('../src/utils/istTime');
 
 // In the order the customer meets them.
-const REPAIR_STEPS = ['ask_name', 'ask_bag_type', 'ask_problem', 'ask_store'];
+const REPAIR_STEPS = ['ask_name', 'ask_bag_type', 'ask_problem', 'ask_store', 'ask_salesperson', 'ask_photo'];
 
 async function main() {
   const days = Number(process.argv[2]) || 30;

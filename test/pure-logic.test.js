@@ -21,6 +21,7 @@ const {
 const { formatIST, parseISTString, istHour, currentISTYear } = require('../src/utils/istTime');
 const {
   canonicalStatus, terminalStopReason, DEFAULT_REPAIR_TICKET_STATUS,
+  isMandatoryCustomerNotifyStatus,
 } = require('../src/constants/repairTicketStatuses');
 const { sanitizeTemplateParam, isLikelySendablePhone } = require('../src/services/whatsapp');
 const { isRetryableSheetsError, withSheetsRetry } = require('../src/services/sheets');
@@ -108,6 +109,14 @@ test('terminalStopReason classifies end states', () => {
   assert.strictEqual(terminalStopReason('Picked Up'), 'completed');
   assert.strictEqual(terminalStopReason('Cannot Repair'), 'cancelled');
   assert.strictEqual(terminalStopReason('Bag Received'), null);
+});
+
+test('ready / closed statuses always notify the customer', () => {
+  assert.ok(isMandatoryCustomerNotifyStatus('Ready for Pickup'));
+  assert.ok(isMandatoryCustomerNotifyStatus('Picked Up'));
+  assert.ok(isMandatoryCustomerNotifyStatus('Cannot Repair'));
+  assert.ok(!isMandatoryCustomerNotifyStatus('Bag Received'));
+  assert.ok(!isMandatoryCustomerNotifyStatus('Repair In Progress'));
 });
 
 // ── template parameter safety ─────────────────────────────────
@@ -443,6 +452,20 @@ test('the store contact block links to the marketplace, not a bare hostname', ()
   assert.ok(!/front\.chanakyacorporate/i.test(block), 'dead host is gone');
 });
 
+test('repair-ticket contacts are store number first, then customer care', () => {
+  const {
+    ticketContactWithEmailAndWebForBranch,
+  } = require('../src/constants/publicContact');
+  const alka = ticketContactWithEmailAndWebForBranch('alkapuri');
+  const sur = ticketContactWithEmailAndWebForBranch('sursagar');
+  assert.ok(alka.indexOf('+91 99740 17723') < alka.indexOf('+91 70483 82178'),
+    'Alkapuri store number comes before customer care');
+  assert.ok(sur.indexOf('+91 99740 17731') < sur.indexOf('+91 70483 82178'),
+    'Sursagar store number comes before customer care');
+  assert.ok(!alka.includes('Vatsal Joshi'), 'ticket block is not the people directory');
+  assert.ok(!sur.includes('Nilesh Joshi'), 'ticket block is not the people directory');
+});
+
 test('the bulk category prompt tells people to come back to the chat', () => {
   const M = require('../src/messages/index');
   const expectations = {
@@ -551,6 +574,10 @@ test('valid in-flow button taps do not count as fallbacks', () => {
     detectIntent('ru_no', { phone: null, currentFlow: 'repair_updates' }), '__continue_flow__');
   assert.strictEqual(
     detectIntent('cat_all', { phone: null, currentFlow: 'catalog' }), '__continue_flow__');
+  assert.strictEqual(
+    detectIntent('btn_skip_photo', { phone: null, currentFlow: 'repair' }), '__continue_flow__');
+  assert.strictEqual(
+    detectIntent('btn_take_photo', { phone: null, currentFlow: 'repair' }), '__continue_flow__');
 });
 
 test('handoff phrases beat the main-menu greeting keywords', () => {
@@ -714,3 +741,66 @@ test('adding native greetings did not swallow the other native-script commands',
   assert.strictEqual(detectIntent('किसी से बात कराओ', S()), 'escalate');
   assert.strictEqual(detectIntent('કોઈ સાથે વાત', S()), 'escalate');
 });
+
+// ── Status poller: opt-in reminders vs always-on ready/closed ──
+const { decideAction } = require('../src/jobs/statusPoller');
+const HOUR = 60 * 60 * 1000;
+
+test('opted-in customers get a send on a real status change', () => {
+  const d = decideAction({
+    status: 'Bag Received',
+    lastStatusSent: DEFAULT_REPAIR_TICKET_STATUS,
+    lastUpdateSentAt: new Date(Date.now() - HOUR),
+    optedIn: true,
+  }, Date.now());
+  assert.strictEqual(d.send, true);
+  assert.strictEqual(d.reason, 'status_change');
+});
+
+test('opted-in customers get a 24h nudge when nothing has changed', () => {
+  const d = decideAction({
+    status: 'Repair In Progress',
+    lastStatusSent: 'Repair In Progress',
+    lastUpdateSentAt: new Date(Date.now() - 25 * HOUR),
+    optedIn: true,
+  }, Date.now());
+  assert.strictEqual(d.send, true);
+  assert.strictEqual(d.reason, 'nudge');
+});
+
+test('declined reminders still get Ready for Pickup and closed tickets', () => {
+  const ready = decideAction({
+    status: 'Ready for Pickup',
+    lastStatusSent: 'Repair Complete',
+    optedIn: false,
+  }, Date.now());
+  assert.strictEqual(ready.send, true);
+  assert.strictEqual(ready.reason, 'mandatory');
+
+  const closed = decideAction({
+    status: 'Picked Up',
+    lastStatusSent: 'Ready for Pickup',
+    optedIn: false,
+  }, Date.now());
+  assert.strictEqual(closed.send, true);
+  assert.strictEqual(closed.reason, 'mandatory');
+
+  const cannot = decideAction({
+    status: 'Cannot Repair',
+    lastStatusSent: 'Inspection Done',
+    optedIn: false,
+  }, Date.now());
+  assert.strictEqual(cannot.send, true);
+  assert.strictEqual(cannot.reason, 'mandatory');
+});
+
+test('declined reminders do not get mid-repair progress pings', () => {
+  const d = decideAction({
+    status: 'Bag Received',
+    lastStatusSent: DEFAULT_REPAIR_TICKET_STATUS,
+    optedIn: false,
+  }, Date.now());
+  assert.strictEqual(d.send, false);
+  assert.strictEqual(d.skip, 'not_opted_in');
+});
+

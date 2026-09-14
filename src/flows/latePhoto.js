@@ -16,12 +16,24 @@ function getInboundImageMediaId(message = {}) {
 }
 
 /**
+ * Download an inbound WhatsApp image and store it on Cloudinary.
+ * Random token in the public URL — never the phone number.
+ * @returns {Promise<string|null>} HTTPS URL, or null when the message has no image
+ */
+async function uploadInboundRepairPhoto(message) {
+  const mediaId = getInboundImageMediaId(message);
+  if (!mediaId) return null;
+  const buf = await downloadMedia(mediaId);
+  const filename = `before_${crypto.randomBytes(8).toString('hex')}_${Date.now()}`;
+  return uploadBuffer(buf, 'chanakya-repairs/before', filename);
+}
+
+/**
  * Handle an image sent outside any flow.
  *
- * Since the booking now creates the ticket BEFORE asking for a photo, the
- * photo can legitimately arrive at any point afterwards. Rather than a flow
- * step the customer could get stuck in (or lose to a restart), any stray
- * image is matched to their most recent ticket that still has no photo.
+ * The booking asks for a photo just before creating the ticket, with a skip
+ * ("I'll upload later"). A stray image after that is matched to their most
+ * recent ticket that still has no photo.
  *
  * @returns {Promise<boolean>} true if the image was consumed (caller should
  *   stop routing), false to let normal intent routing continue.
@@ -47,11 +59,8 @@ async function handleLatePhoto(phone, message, lang = 'english') {
   }
 
   try {
-    const buf = await downloadMedia(mediaId);
-    // Random token, never the phone number — Cloudinary URLs are public and
-    // this one ends up in the sheet and in owner alerts.
-    const filename = `before_${crypto.randomBytes(8).toString('hex')}_${Date.now()}`;
-    const url = await uploadBuffer(buf, 'chanakya-repairs/before', filename);
+    const url = await uploadInboundRepairPhoto(message);
+    if (!url) return false;
     await attachBeforePhoto(ticket.rowIndex, url);
     console.log(`[LATE-PHOTO] Attached photo to ${ticket.ticketId} for ${_rp(phone)}`);
     await sendTextMessage(phone, M.fill(M.get('photo_attached', lang), { ticketId: ticket.ticketId }))
@@ -63,4 +72,4 @@ async function handleLatePhoto(phone, message, lang = 'english') {
   return true;
 }
 
-module.exports = { handleLatePhoto };
+module.exports = { handleLatePhoto, uploadInboundRepairPhoto, getInboundImageMediaId };

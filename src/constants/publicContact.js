@@ -21,6 +21,12 @@ const VEDANT_LINE = '*Vedant Joshi* — +91 99745 92477';
 const NILESH_PHONE_DISPLAY = '+91 99740 17727';
 
 /**
+ * Shared customer-care line shown on repair-ticket confirmations, after the
+ * branch's own store number. Not used for owner alerts or human handoff.
+ */
+const CUSTOMER_CARE_PHONE_DISPLAY = '+91 70483 82178';
+
+/**
  * Branch landline / shop line. Shown AFTER the named people, because Vatsal
  * always leads the directory.
  */
@@ -81,6 +87,29 @@ function directoryWithEmailAndWebForBranch(slug) {
   return `${directoryWithEmailForBranch(slug)}\n🌐 ${browseAllUrl()}`;
 }
 
+/**
+ * Phone block on a repair-ticket confirmation: this store's number first,
+ * then the shared customer-care line. Deliberately not the named-people
+ * directory — that one stays on handoff / store-location / bulk.
+ * @param {'alkapuri'|'sursagar'} slug
+ */
+function ticketPhonesForBranch(slug) {
+  const storePhone = STORE_BRANCH_PHONE[slug];
+  const label = slug === 'alkapuri' ? '*Alkapuri store*' : '*Sursagar store*';
+  const lines = [];
+  if (storePhone) lines.push(`${label} — ${storePhone}`);
+  lines.push(`*Customer care* — ${CUSTOMER_CARE_PHONE_DISPLAY}`);
+  return lines.join('\n');
+}
+
+function ticketContactWithEmailForBranch(slug) {
+  return `${ticketPhonesForBranch(slug)}\n\n✉️ chanakyathebagstudio@gmail.com`;
+}
+
+function ticketContactWithEmailAndWebForBranch(slug) {
+  return `${ticketContactWithEmailForBranch(slug)}\n🌐 ${browseAllUrl()}`;
+}
+
 function directoryWithEmail() {
   return `${directoryPhonesOnly()}\n\n✉️ chanakyathebagstudio@gmail.com`;
 }
@@ -127,6 +156,8 @@ module.exports = {
   directoryWithEmail,
   directoryWithEmailForBranch,
   directoryWithEmailAndWebForBranch,
+  ticketContactWithEmailForBranch,
+  ticketContactWithEmailAndWebForBranch,
   corporateContactBlock,
   CORPORATE_MARKETPLACE_URL,
   branchSlugFromRepairStoreId,

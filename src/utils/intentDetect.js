@@ -167,6 +167,10 @@ function detectIntent(text, session) {
     resetFb();
     return '__continue_flow__';
   }
+  if (/^btn_(take|skip)_photo$/i.test(text) && flow === 'repair') {
+    resetFb();
+    return '__continue_flow__';
+  }
   // Submitting or restarting at the bulk-order recap is a valid answer, not a
   // failure to understand — same reasoning as the skip button above.
   if (/^btn_lead_(submit|restart)$/i.test(text) && flow === 'corporate') {

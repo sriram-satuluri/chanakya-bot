@@ -20,9 +20,9 @@ const OPTIN_BUTTONS = {
  */
 async function askRepairUpdatesOptIn(phone, lang, ticketId) {
   // Don't promise WhatsApp updates we cannot send (unapproved templates would
-  // fail 3× and silently unsubscribe them).
+  // fail 3× and silently unsubscribe them). The photo has already been asked.
   if (!repairUpdatesReady()) {
-    return askForPhoto(phone, lang);
+    return;
   }
   updateSession(phone, {
     currentFlow: 'repair_updates',
@@ -46,8 +46,8 @@ async function handleRepairUpdatesAnswer(phone, text, session, intent = null) {
 
   // "Talk to a person" is not an answer to the opt-in question. Before this
   // guard it fell into the treat-anything-as-"no" branch below: the customer
-  // asked for a human, got a photo request, and had a consent decision
-  // recorded for them by a message that was never a reply to the question.
+  // asked for a human and had a consent decision recorded for them by a
+  // message that was never a reply to the question.
   //
   // Deliberately records NOTHING about the opt-in — the ticket keeps its
   // as-created FALSE and the question simply goes unanswered, which is honest.
@@ -66,30 +66,19 @@ async function handleRepairUpdatesAnswer(phone, text, session, intent = null) {
     } catch (e) {
       console.error(`[REPAIR-UPDATES] Failed to opt in ${_rd(phone)}:`, e.message);
     }
-    // Confirmation and the photo request go out together — two separate
-    // notifications for one button tap is one too many at the end of a
-    // booking that has already sent several.
-    return askForPhoto(phone, lang, M.get('repair_updates_on_confirm', lang));
+    return sendTextMessage(phone, M.get('repair_updates_on_confirm', lang))
+      .catch((e) => console.error('[REPAIR-UPDATES] Opt-in confirm failed:', e.message));
   }
 
-  // Explicit "no", or any other reply — leave opted_in FALSE (as created).
-  console.log(`[REPAIR-UPDATES] ${_rd(phone)} declined updates for ${ticketId || '(none)'}`);
-  return askForPhoto(phone, lang);
-}
+  if (choice === 'ru_no') {
+    console.log(`[REPAIR-UPDATES] ${_rd(phone)} declined updates for ${ticketId || '(none)'}`);
+    return sendTextMessage(phone, M.get('repair_updates_declined', lang))
+      .catch((e) => console.error('[REPAIR-UPDATES] Decline confirm failed:', e.message));
+  }
 
-/**
- * Ask for the before-photo — the LAST thing in the booking, after the ticket
- * already exists. Deliberately does NOT park the session: the photo is
- * optional and may arrive days later, so it is picked up by the late-photo
- * handler in webhook/handler.js instead of a flow step that could trap the
- * customer or be lost on restart.
- */
-async function askForPhoto(phone, lang, prefix = '') {
-  const body = prefix
-    ? `${prefix}\n\n${M.get('photo_request_after_ticket', lang)}`
-    : M.get('photo_request_after_ticket', lang);
-  return sendTextMessage(phone, body)
-    .catch((e) => console.error('[REPAIR-UPDATES] Photo request failed:', e.message));
+  // Any other reply — leave opted_in FALSE (as created). Don't lecture them;
+  // the question simply went unanswered, which is the privacy-safe default.
+  console.log(`[REPAIR-UPDATES] ${_rd(phone)} left reminders unanswered for ${ticketId || '(none)'}`);
 }
 
 /**

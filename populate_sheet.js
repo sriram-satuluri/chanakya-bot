@@ -52,9 +52,15 @@ const { google } = require('googleapis');
     });
     console.log('UPDATED_RANGES:', res.data.totalUpdatedRanges, 'CELLS:', res.data.totalUpdatedCells);
 
-    const { applyRepairTicketStatusDropdown } = require('./src/services/sheets');
+    const { applyRepairTicketStatusDropdown, applyRepairTicketSheetProtection } = require('./src/services/sheets');
     await applyRepairTicketStatusDropdown();
     console.log('repair_tickets!G:G — status dropdown (data validation) applied.');
+    try {
+      await applyRepairTicketSheetProtection();
+    } catch (e) {
+      console.warn('repair_tickets protection skipped:', e.message);
+      console.warn('Run `npm run sheet:protect` once the service account can edit the spreadsheet.');
+    }
 
     console.log('OK');
   } catch (e) {
