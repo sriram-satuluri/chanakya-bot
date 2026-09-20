@@ -142,11 +142,6 @@ function decideAction(t, now) {
   const mandatory = isMandatoryCustomerNotifyStatus(status);
   const waitingPickup = isWaitingForPickup(status);
 
-  // Idempotency: recently sent, regardless of what the status looks like.
-  if (t.lastUpdateSentAt && (now - t.lastUpdateSentAt.getTime()) < MIN_RESEND_GAP_MS) {
-    return { send: false, skip: 'recently_sent' };
-  }
-
   // Already told them about THIS closed status (collected / cannot-repair).
   if (terminal && lastSent === status) {
     return {
@@ -160,18 +155,25 @@ function decideAction(t, now) {
   // default. The customer got a confirmation message moments ago, so a paid
   // template restating "awaiting drop-off" adds nothing. Record the baseline
   // silently so the FIRST genuine status change is what reaches them.
-  // (If they opted in later, when the repair had already progressed, status
-  // won't be the default and they correctly get a catch-up message.)
-  if (optedIn && !t.lastStatusSent && status === canonicalStatus(DEFAULT_REPAIR_TICKET_STATUS)) {
+  if (!t.lastStatusSent && status === canonicalStatus(DEFAULT_REPAIR_TICKET_STATUS)) {
     return { send: false, skip: 'bootstrap', baselineStatus: status };
   }
 
-  if (statusChanged && (optedIn || mandatory)) {
+  // A real column-G change always WhatsApps — including Bag Received /
+  // Inspection / In Progress, and including customers who declined the
+  // daily reminder. Opt-in only controls the 24h "still in progress" nudge.
+  if (statusChanged) {
     return {
       send: true,
       reason: (!optedIn && mandatory) ? 'mandatory' : 'status_change',
       terminal,
     };
+  }
+
+  // Same status we already sent: don't retry for a few minutes (cron overlap /
+  // sheet write lag). A *new* status above is never blocked by this.
+  if (t.lastUpdateSentAt && (now - t.lastUpdateSentAt.getTime()) < MIN_RESEND_GAP_MS) {
+    return { send: false, skip: 'recently_sent' };
   }
 
   // Ready for pickup, already notified — keep reminding until they collect.

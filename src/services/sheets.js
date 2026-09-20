@@ -4,7 +4,6 @@ const {
   DEFAULT_REPAIR_TICKET_STATUS,
   canonicalStatus,
   terminalStopReason,
-  isMandatoryCustomerNotifyStatus,
   isWaitingForPickup,
 } = require('../constants/repairTicketStatuses');
 const { formatIST, formatISTDate, parseISTString } = require('../utils/istTime');
@@ -438,14 +437,15 @@ function isSheetTrue(v) {
 
 /**
  * Tickets the status poller should consider:
- *   - waiting for pickup (first ready message + 23h repeats until collected)
- *   - a mandatory customer-notify status we have not already sent
- *     (repair complete / ready / closed), even if they declined reminders
- *   - opted-in, not already stopped (progress reminders + 24h nudge)
+ *   - any row whose column G status is not what we last WhatsApped
+ *   - waiting for pickup (23h repeats until collected)
+ *   - default "awaiting bag" rows with an empty last_status_sent (silent baseline)
+ *   - opted-in, not already stopped (24h "still in progress" nudge)
  */
 async function getTicketsForProactiveUpdate() {
   const rows = await readTicketRows();
   const out = [];
+  const defaultStatus = canonicalStatus(DEFAULT_REPAIR_TICKET_STATUS);
   for (let i = 1; i < rows.length; i++) {
     const r = rows[i];
     const ticketId = String(r[TICKET_COL.TICKET_ID] ?? '').trim();
@@ -456,17 +456,18 @@ async function getTicketsForProactiveUpdate() {
     const alreadyNotified = canonicalStatus(lastStatusSent) === status;
     const optedIn = isSheetTrue(r[TICKET_COL.OPTED_IN]);
     const stopReason = String(r[TICKET_COL.STOP_REASON] ?? '').trim();
-    const mandatory = isMandatoryCustomerNotifyStatus(status);
     const waitingPickup = isWaitingForPickup(status);
+    const awaitingBaseline = !lastStatusSent && status === defaultStatus;
+    const statusChanged = !alreadyNotified;
 
     if (waitingPickup && stopReason !== 'delivery_failed') {
-      // Keep chasing collection even if they declined progress reminders,
-      // and even if an older run marked the row "completed" after the
-      // first ready-for-pickup message.
-    } else if (mandatory && !alreadyNotified) {
-      // Repair complete / closed — one-shot even after an opt-out.
+      // Keep chasing collection even after an opt-out.
+    } else if (awaitingBaseline) {
+      // Record the creation default so the first real G change is the first send.
+    } else if (statusChanged && stopReason !== 'delivery_failed') {
+      // Any staff dropdown change — including Bag Received / In Progress.
     } else if (optedIn && !stopReason) {
-      // Progress reminders.
+      // Daily reassurance while nothing has changed.
     } else {
       continue;
     }

@@ -560,28 +560,28 @@ const messages = {
 
   // ── Proactive repair-update opt-in (per ticket) ──
   repair_updates_ask: {
-    english: `🔔 Would you like *repair reminders* on WhatsApp?\n\nWe'll message you when the ticket status changes, and once a day if nothing has changed.\n\nYou'll still hear from us when the repair is *complete*, the bag is *ready for pickup*, or the ticket is *closed* — even if you tap No. If it's ready and not collected, we'll remind you until you pick it up.`,
-    hindi:   `🔔 क्या आप WhatsApp पर *रिपेयर रिमाइंडर* चाहेंगे?\n\nटिकट की स्थिति बदलने पर हम मैसेज करेंगे, और अगर कोई बदलाव न हो तो दिन में एक बार।\n\nरिपेयर *पूरी* होने, बैग *पिकअप के लिए तैयार* होने, या टिकट *बंद* होने पर हम वैसे भी बताएंगे — *नहीं* दबाने पर भी। तैयार बैग न लेने तक हम याद दिलाते रहेंगे।`,
-    gujarati:`🔔 શું તમે WhatsApp પર *રિપેર રિમાઇન્ડર* ઈચ્છો છો?\n\nટિકિટની સ્થિતિ બદલાય ત્યારે અમે મેસેજ કરીશું, અને કશું ન બદલાય તો દિવસમાં એક વાર.\n\nરિપેર *પૂર્ણ* થાય, બેગ *પિકઅપ માટે તૈયાર* થાય, કે ટિકિટ *બંધ* થાય ત્યારે અમે તેમ છતાં જણાવીશું — *ના* દબાવો તો પણ. તૈયાર બેગ ન લો ત્યાં સુધી યાદ અપાવતા રહીશું.`,
+    english: `🔔 Would you like a *daily ping* if the ticket hasn't moved?\n\nYou'll still get a WhatsApp whenever we update the repair — including when it's *complete*, *ready for pickup* (we'll keep reminding until you collect it), or *closed* — even if you tap No.`,
+    hindi:   `🔔 अगर टिकट न हिले तो क्या *रोज़ एक पिंग* चाहिए?\n\nस्थिति बदलने पर हम वैसे भी WhatsApp करेंगे — रिपेयर *पूरी*, बैग *पिकअप के लिए तैयार* (ले जाने तक याद दिलाएंगे), या टिकट *बंद* — *नहीं* दबाने पर भी।`,
+    gujarati:`🔔 જો ટિકિટ ન હલે તો શું *રોજ એક પિંગ* જોઈએ?\n\nસ્થિતિ બદલાય ત્યારે અમે તેમ છતાં WhatsApp કરીશું — રિપેર *પૂર્ણ*, બેગ *પિકઅપ માટે તૈયાર* (લઈ જાઓ ત્યાં સુધી યાદ અપાવીશું), કે ટિકિટ *બંધ* — *ના* દબાવો તો પણ.`,
   },
 
   repair_updates_on_confirm: {
-    english: `✅ Done — we'll message you when the status changes, and once a day if nothing has changed.\n\nReply *stop updates* anytime to turn these off.`,
-    hindi:   `✅ हो गया — स्थिति बदलने पर हम मैसेज करेंगे, और अगर कोई बदलाव न हो तो दिन में एक बार।\n\nबंद करने के लिए कभी भी *अपडेट बंद* भेजें।`,
-    gujarati:`✅ થઈ ગયું — સ્થિતિ બદલાય ત્યારે અમે મેસેજ કરીશું, અને કશું ન બદલાય તો દિવસમાં એક વાર.\n\nબંધ કરવા ગમે ત્યારે *અપડેટ બંધ* મોકલો.`,
+    english: `✅ Done — if the ticket sits still, we'll ping once a day.\n\nStatus changes still come either way. Reply *stop updates* to turn the daily ping off.`,
+    hindi:   `✅ हो गया — अगर टिकट न हिले तो दिन में एक बार पिंग करेंगे।\n\nस्थिति बदलने पर मैसेज वैसे भी आएगा। रोज़ का पिंग बंद करने के लिए *अपडेट बंद* भेजें।`,
+    gujarati:`✅ થઈ ગયું — જો ટિકિટ ન હલે તો દિવસમાં એક વાર પિંગ કરીશું.\n\nસ્થિતિ બદલાય ત્યારે મેસેજ તેમ છતાં આવશે. રોજનું પિંગ બંધ કરવા *અપડેટ બંધ* મોકલો.`,
   },
 
   repair_updates_off_confirm: {
-    english: `✅ Repair updates turned off. You can still check anytime with *track*, and reply *resume updates* to turn them back on.\n\nWe'll still message you when the repair is complete, the bag is ready for pickup (and remind you until you collect it), or the ticket is closed.`,
-    hindi:   `✅ रिपेयर अपडेट बंद कर दिए गए। *track* लिखकर कभी भी देख सकते हैं, और *अपडेट चालू* भेजकर दोबारा चालू कर सकते हैं।\n\nरिपेयर पूरी होने, बैग तैयार होने (ले जाने तक याद दिलाएंगे), या टिकट बंद होने पर हम वैसे भी मैसेज करेंगे।`,
-    gujarati:`✅ રિપેર અપડેટ બંધ કરી દીધા. *track* લખીને ગમે ત્યારે જોઈ શકો છો, અને *અપડેટ ચાલુ* મોકલીને ફરી ચાલુ કરી શકો છો.\n\nરિપેર પૂર્ણ થાય, બેગ તૈયાર થાય (લઈ જાઓ ત્યાં સુધી યાદ અપાવીશું), કે ટિકિટ બંધ થાય ત્યારે અમે તેમ છતાં મેસેજ કરીશું.`,
+    english: `✅ Daily pings turned off. You still get a WhatsApp when staff update the status, when the bag is ready for pickup (until you collect it), or when the ticket is closed.\n\nReply *resume updates* for the daily ping, or *track* anytime.`,
+    hindi:   `✅ रोज़ के पिंग बंद। स्थिति बदलने, बैग तैयार होने (ले जाने तक), या टिकट बंद होने पर मैसेज वैसे भी आएगा।\n\nरोज़ का पिंग वापस: *अपडेट चालू*। कभी भी *track* लिख सकते हैं।`,
+    gujarati:`✅ રોજના પિંગ બંધ. સ્થિતિ બદલાય, બેગ તૈયાર થાય (લઈ જાઓ ત્યાં સુધી), કે ટિકિટ બંધ થાય ત્યારે મેસેજ તેમ છતાં આવશે.\n\nરોજનું પિંગ પાછું: *અપડેટ ચાલુ*. ગમે ત્યારે *track* લખી શકો છો.`,
   },
 
   /** First-time "No" on the post-booking reminder question (not the standing command). */
   repair_updates_declined: {
-    english: `No problem — we won't send progress reminders.\n\nWe'll still message you here when the repair is *complete*, the bag is *ready for pickup* (and remind you until you collect it), or the ticket is *closed*. Track anytime with *track*.`,
-    hindi:   `कोई बात नहीं — प्रगति के रिमाइंडर नहीं भेजेंगे।\n\nरिपेयर *पूरी* होने, बैग *पिकअप के लिए तैयार* होने (ले जाने तक याद दिलाएंगे), या टिकट *बंद* होने पर हम यहाँ मैसेज करेंगे। कभी भी *track* लिखकर देख सकते हैं।`,
-    gujarati:`વાંધો નહીં — પ્રગતિના રિમાઇન્ડર નહીં મોકલીએ.\n\nરિપેર *પૂર્ણ* થાય, બેગ *પિકઅપ માટે તૈયાર* થાય (લઈ જાઓ ત્યાં સુધી યાદ અપાવીશું), કે ટિકિટ *બંધ* થાય ત્યારે અમે અહીં મેસેજ કરીશું. ગમે ત્યારે *track* લખીને જોઈ શકો છો.`,
+    english: `No problem — no daily ping.\n\nYou'll still get a WhatsApp whenever we update the ticket, when it's *ready for pickup* (until you collect it), or when it's *closed*. Track anytime with *track*.`,
+    hindi:   `कोई बात नहीं — रोज़ का पिंग नहीं।\n\nस्थिति बदलने, बैग *पिकअप के लिए तैयार* होने (ले जाने तक), या टिकट *बंद* होने पर मैसेज वैसे भी आएगा। कभी भी *track* लिख सकते हैं।`,
+    gujarati:`વાંધો નહીં — રોજનું પિંગ નહીં.\n\nસ્થિતિ બદલાય, બેગ *પિકઅપ માટે તૈયાર* થાય (લઈ જાઓ ત્યાં સુધી), કે ટિકિટ *બંધ* થાય ત્યારે મેસેજ તેમ છતાં આવશે. ગમે ત્યારે *track* લખી શકો છો.`,
   },
 
   // ── Photo, asked after staff assignment, before the ticket is written ──

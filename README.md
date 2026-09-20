@@ -246,8 +246,7 @@ phone | language | joined_at | opted_in | name
    * `Picked Up`
    * `Cannot Repair`
 4. Within **15 minutes** (any time of day for a status change; daily nudges only **10:00–19:00 IST**):
-   * **Opted in** — they get a WhatsApp when column G changes, and a nudge once every 24 hours if nothing changed.
-   * **Everyone** — they get a WhatsApp when the status is **Repair Complete**, **Ready for Pickup**, **Picked Up** (ticket closed), or **Cannot Repair**, even if they tapped No on reminders.
+   * **Every G change** — they get a WhatsApp (Bag Received through Picked Up). The post-booking Yes/No only controls the extra once-a-day ping if nothing moved.
    * **Ready for Pickup** — we keep messaging about every **23 hours** (10:00–19:00 IST) until staff mark **Picked Up**.
    * If `REPAIR_UPDATE_TEMPLATE_*` is not set yet, status changes still send as ordinary WhatsApp text **while the customer's 24h window is open**. After that, Meta blocks them until those Utility templates are approved.
    * Otherwise they can still *Track My Repair* for free.

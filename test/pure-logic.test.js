@@ -807,14 +807,25 @@ test('declined reminders still get Repair Complete, Ready for Pickup and closed 
   assert.strictEqual(cannot.reason, 'mandatory');
 });
 
-test('declined reminders do not get mid-repair progress pings', () => {
+test('every column-G change WhatsApps, even if they declined the daily ping', () => {
   const d = decideAction({
     status: 'Bag Received',
     lastStatusSent: DEFAULT_REPAIR_TICKET_STATUS,
     optedIn: false,
   }, Date.now());
-  assert.strictEqual(d.send, false);
-  assert.strictEqual(d.skip, 'not_opted_in');
+  assert.strictEqual(d.send, true);
+  assert.strictEqual(d.reason, 'status_change');
+});
+
+test('a new status is not blocked by the 10-minute same-status gap', () => {
+  const d = decideAction({
+    status: 'Repair Complete',
+    lastStatusSent: 'Repair In Progress',
+    lastUpdateSentAt: new Date(Date.now() - 60 * 1000),
+    optedIn: false,
+  }, Date.now());
+  assert.strictEqual(d.send, true);
+  assert.strictEqual(d.reason, 'mandatory');
 });
 
 test('Ready for Pickup keeps pinging every 23h until collected, even if they declined', () => {
