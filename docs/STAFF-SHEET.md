@@ -6,7 +6,7 @@ The WhatsApp bot reads and writes the Google Sheet. Wrong cells look like a brok
 
 | Column | What | Rules |
 |---|---|---|
-| **G Current Status** | Where the bag is | Use the **dropdown only**. Do not type a variant. Each change can WhatsApp the customer. Ready for pickup and closing the ticket (Picked Up / Cannot Repair) always message them. |
+| **G Current Status** | Where the bag is | Use the **dropdown only**. Do not type a variant. Each change can WhatsApp the customer. Repair Complete, Ready for Pickup, Picked Up, and Cannot Repair always message them. Ready for Pickup keeps reminding until you mark Picked Up. |
 
 That is the only column shop-floor staff can change. The tab is locked: ticket id (A), phone, photos, notes, the P1 counter, and reminder columns are bot + owner only. Run `npm run sheet:protect` if someone can still edit the rest.
 
@@ -20,8 +20,8 @@ Ticket IDs are `CHA-R-…` (Alkapuri) or `CHA-S-…` (Sursagar). Older rows may 
 2. **Bag Received** — they dropped it off.
 3. **Inspection Done** — you have looked at it (quote is in person, not on WhatsApp).
 4. **Repair In Progress**
-5. **Repair Complete**
-6. **Ready for Pickup** — customer is **always** notified once, then we stop chasing progress.
+5. **Repair Complete** — customer is **always** notified once.
+6. **Ready for Pickup** — customer is **always** notified, then reminded about every 23 hours until you mark Picked Up.
 7. **Cannot Repair** — customer is **always** told the ticket is closed.
 8. **Picked Up** — customer is **always** told the ticket is closed; stop all further pings.
 
@@ -42,7 +42,9 @@ npm run sheet:status-dropdown
 npm run sheet:protect
 ```
 
-That puts the dropdown on column G and locks every other cell on this tab. Re-run if the dropdown or the lock vanishes.
+That puts the dropdown on column G and locks every other column on this tab (G2:G stays unlocked so the dropdown still appears on ticket rows). Re-run if the dropdown or the lock vanishes.
+
+Do **not** use Google Sheets → Data → Protect sheets and ranges on the whole `repair_tickets` tab. A whole-tab lock with column G as an “exception” hides the status dropdown after a ticket is written. Use `npm run sheet:protect` instead.
 
 Share this spreadsheet with staff as **Editors**, never as Owners. Google lets a file owner edit protected cells no matter what.
 

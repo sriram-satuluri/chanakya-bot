@@ -14,7 +14,7 @@ const {
 const M = require('../messages/index');
 const {
   canonicalStatus, terminalStopReason, DEFAULT_REPAIR_TICKET_STATUS,
-  isMandatoryCustomerNotifyStatus,
+  isMandatoryCustomerNotifyStatus, isWaitingForPickup,
 } = require('../constants/repairTicketStatuses');
 const { istHour, formatIST } = require('../utils/istTime');
 
@@ -32,8 +32,10 @@ const { istHour, formatIST } = require('../utils/istTime');
  * snapshot file to keep in sync.
  *
  * Progress reminders (status change + a daily nudge) only go to opted-in
- * tickets. Ready-for-pickup and closed (Picked Up / Cannot Repair) always
- * notify, even if they declined reminders.
+ * tickets. Repair Complete, Ready for Pickup, Picked Up, and Cannot Repair
+ * always notify, even if they declined reminders. While the bag sits on
+ * Ready for Pickup we keep pinging every REPAIR_PICKUP_REMIND_HOURS (23)
+ * until staff mark Picked Up.
  *
  * EXTERNAL SETUP REQUIRED: three Utility templates must exist and be approved
  * in Meta Business Manager (en/hi/gu), each taking four body variables:
@@ -47,8 +49,12 @@ const QUIET_START_HOUR = envInt('PROACTIVE_START_HOUR', 10, { min: 0, max: 23 })
 const QUIET_END_HOUR = envInt('PROACTIVE_END_HOUR', 19, { min: 0, max: 24 });
 
 /** No status change for this many hours → send a "still in progress" nudge
- *  (opted-in tickets only). 0 disables nudges. */
+ *  (opted-in tickets only, never while waiting for pickup). 0 disables. */
 const NUDGE_AFTER_HOURS = envInt('REPAIR_UPDATE_NUDGE_HOURS', 24, { min: 0 });
+
+/** Hours between "please collect" pings while status is Ready for Pickup.
+ *  Independent of opt-in. 0 disables repeats (the first ready message still sends). */
+const PICKUP_REMIND_HOURS = envInt('REPAIR_PICKUP_REMIND_HOURS', 23, { min: 0 });
 
 /** Consecutive send failures for a number before we stop trying for that ticket. */
 const MAX_CONSECUTIVE_FAILURES = 3;
@@ -78,6 +84,12 @@ function withinSendWindow(now = new Date()) {
   return h >= QUIET_START_HOUR && h < QUIET_END_HOUR;
 }
 
+function hoursElapsed(since, nowMs) {
+  const sinceMs = since && typeof since.getTime === 'function' ? since.getTime() : null;
+  if (sinceMs == null) return null;
+  return (nowMs - sinceMs) / HOUR_MS;
+}
+
 /**
  * Decide whether this ticket is due for a send right now.
  * @returns {{send: boolean, reason?: string, skip?: string, terminal?: string|null, stopReason?: string, baselineStatus?: string}}
@@ -89,13 +101,14 @@ function decideAction(t, now) {
   const terminal = terminalStopReason(status);
   const optedIn = t.optedIn !== false;
   const mandatory = isMandatoryCustomerNotifyStatus(status);
+  const waitingPickup = isWaitingForPickup(status);
 
   // Idempotency: recently sent, regardless of what the status looks like.
   if (t.lastUpdateSentAt && (now - t.lastUpdateSentAt.getTime()) < MIN_RESEND_GAP_MS) {
     return { send: false, skip: 'recently_sent' };
   }
 
-  // Already told them about THIS status (ready / closed / collected).
+  // Already told them about THIS closed status (collected / cannot-repair).
   if (terminal && lastSent === status) {
     return {
       send: false,
@@ -122,12 +135,20 @@ function decideAction(t, now) {
     };
   }
 
-  // No change — is it time for a periodic reassurance nudge? Opted-in only,
-  // and never nudge a ticket that has already reached a terminal status.
+  // Ready for pickup, already notified — keep reminding until they collect.
+  // Independent of the progress-reminder opt-in.
+  if (waitingPickup && PICKUP_REMIND_HOURS > 0) {
+    const elapsed = hoursElapsed(t.lastUpdateSentAt || t.createdAt, now);
+    if (elapsed != null && elapsed >= PICKUP_REMIND_HOURS) {
+      return { send: true, reason: 'pickup_reminder', terminal: null };
+    }
+    return { send: false, skip: 'waiting_pickup' };
+  }
+
+  // No change — periodic reassurance for opted-in in-progress tickets only.
   if (optedIn && !terminal && NUDGE_AFTER_HOURS > 0) {
-    const since = t.lastUpdateSentAt || t.createdAt;
-    const sinceMs = since && typeof since.getTime === 'function' ? since.getTime() : null;
-    if (sinceMs && (now - sinceMs) >= NUDGE_AFTER_HOURS * HOUR_MS) {
+    const elapsed = hoursElapsed(t.lastUpdateSentAt || t.createdAt, now);
+    if (elapsed != null && elapsed >= NUDGE_AFTER_HOURS) {
       return { send: true, reason: 'nudge', terminal: null };
     }
   }
@@ -240,7 +261,7 @@ async function pollStatusChanges() {
       sent++;
       patch = { statusSent: t.status, sentAt: now, failureCount: 0 };
       if (decision.terminal) {
-        // Ready for pickup / cannot repair: this was the final message.
+        // Picked up / cannot repair: this was the final message.
         patch.optedIn = false;
         patch.stopReason = decision.terminal;
         stopped++;

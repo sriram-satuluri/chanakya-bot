@@ -5,6 +5,7 @@ const {
   canonicalStatus,
   terminalStopReason,
   isMandatoryCustomerNotifyStatus,
+  isWaitingForPickup,
 } = require('../constants/repairTicketStatuses');
 const { formatIST, formatISTDate, parseISTString } = require('../utils/istTime');
 const { envInt } = require('../utils/env');
@@ -437,10 +438,10 @@ function isSheetTrue(v) {
 
 /**
  * Tickets the status poller should consider:
+ *   - waiting for pickup (first ready message + 23h repeats until collected)
+ *   - a mandatory customer-notify status we have not already sent
+ *     (repair complete / ready / closed), even if they declined reminders
  *   - opted-in, not already stopped (progress reminders + 24h nudge)
- *   - OR a mandatory customer-notify status (ready for pickup / closed)
- *     that we have not already sent for this status, even if they declined
- *     progress reminders.
  */
 async function getTicketsForProactiveUpdate() {
   const rows = await readTicketRows();
@@ -456,9 +457,14 @@ async function getTicketsForProactiveUpdate() {
     const optedIn = isSheetTrue(r[TICKET_COL.OPTED_IN]);
     const stopReason = String(r[TICKET_COL.STOP_REASON] ?? '').trim();
     const mandatory = isMandatoryCustomerNotifyStatus(status);
+    const waitingPickup = isWaitingForPickup(status);
 
-    if (mandatory && !alreadyNotified) {
-      // Always consider ready-for-pickup / closed, even after an opt-out.
+    if (waitingPickup && stopReason !== 'delivery_failed') {
+      // Keep chasing collection even if they declined progress reminders,
+      // and even if an older run marked the row "completed" after the
+      // first ready-for-pickup message.
+    } else if (mandatory && !alreadyNotified) {
+      // Repair complete / closed — one-shot even after an opt-out.
     } else if (optedIn && !stopReason) {
       // Progress reminders.
     } else {
@@ -1106,22 +1112,26 @@ async function applyRepairTicketStatusDropdown() {
  * and P1 (the counter) — is editable only by the bot service account and any
  * emails in SHEET_FULL_ACCESS_EMAILS.
  *
+ * We do NOT protect the whole tab with G as an "exception". Google Sheets
+ * hides the status dropdown on those exception cells, so after the bot wrote
+ * a ticket row the dropdown vanished. Instead we lock A–F, H and beyond,
+ * and G1 — and leave G2:G as a normal column with the dropdown.
+ *
  * Spreadsheet *owners* always bypass range protection (Google's rule). Share
- * staff as Editors, not Owners. Re-run is idempotent: it updates the range
- * we created last time rather than stacking duplicates.
+ * staff as Editors, not Owners. Re-run is idempotent.
  *
- * Manual "Protect sheet" locks that exclude the bot are removed when we are
- * allowed to (otherwise ticket creates 403). Locks we cannot edit are listed
- * so they can be deleted in the Google UI.
- *
- * @returns {Promise<{protectedRangeId: number, editors: string[], removed: number[]}>}
+ * @returns {Promise<{protectedRangeIds: number[], editors: string[], removed: number[]}>}
  */
-const SHEET_PROTECTION_DESCRIPTION =
-  'chanakya-bot: staff may only edit Current Status (column G)';
+const SHEET_PROTECTION_PREFIX = 'chanakya-bot:';
 
 function describeProtectedRange(p, sheetId) {
   const r = p.range || {};
-  const sameSheet = r.sheetId === sheetId;
+  // The first tab is sheetId 0. The Sheets API omits default-zero fields, so
+  // a whole-tab lock on repair_tickets arrives as range: {} and a column lock
+  // as { startColumnIndex, endColumnIndex } with no sheetId. `===` against 0
+  // then misses every lock, we never delete them, and the old whole-tab lock
+  // (which hides the status dropdown) stays forever.
+  const rangeSheetId = r.sheetId ?? 0;
   const cols = (r.startColumnIndex == null && r.endColumnIndex == null)
     ? 'all columns'
     : `${colLetter(r.startColumnIndex)}:${colLetter((r.endColumnIndex || 1) - 1)}`;
@@ -1134,7 +1144,7 @@ function describeProtectedRange(p, sheetId) {
     warningOnly: Boolean(p.warningOnly),
     canEdit: p.requestingUserCanEdit !== false,
     editors: p.editors?.users || [],
-    sameSheet,
+    sameSheet: rangeSheetId === sheetId,
     cols,
     rows,
   };
@@ -1142,7 +1152,17 @@ function describeProtectedRange(p, sheetId) {
 
 function colLetter(idx) {
   if (idx == null || idx < 0) return '?';
-  return String.fromCharCode(65 + idx);
+  let n = idx;
+  let s = '';
+  do {
+    s = String.fromCharCode(65 + (n % 26)) + s;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return s;
+}
+
+function protectionEditors(users) {
+  return { users, domainUsersCanEdit: false };
 }
 
 async function applyRepairTicketSheetProtection() {
@@ -1157,12 +1177,9 @@ async function applyRepairTicketSheetProtection() {
     .filter((e) => e && e.includes('@'));
   const editors = [...new Set([botEmail, ...extra])];
 
-  const rawLastRow = Number(process.env.SHEETS_STATUS_VALIDATION_LAST_ROW);
-  const exclusiveEndRow = Number.isFinite(rawLastRow) ? rawLastRow : 5020;
-
   const meta = await sheets().spreadsheets.get({
     spreadsheetId: id,
-    fields: 'sheets.properties(sheetId,title),sheets.protectedRanges',
+    fields: 'sheets(properties(sheetId,title),protectedRanges)',
   });
   const sh = meta.data.sheets?.find((s) => s.properties?.title === TABS.TICKETS);
   const sheetId = sh?.properties?.sheetId;
@@ -1170,9 +1187,10 @@ async function applyRepairTicketSheetProtection() {
     throw new Error(`Could not resolve sheet "${TABS.TICKETS}" — check tab title matches exactly.`);
   }
 
+  // Protected ranges on this Sheet object are already tab-scoped. Do not also
+  // require range.sheetId === sheetId — sheetId 0 is omitted in the API JSON.
   const onThisTab = (sh.protectedRanges || [])
-    .map((p) => ({ raw: p, info: describeProtectedRange(p, sheetId) }))
-    .filter((p) => p.info.sameSheet);
+    .map((p) => ({ raw: p, info: describeProtectedRange(p, sheetId) }));
 
   for (const p of onThisTab) {
     console.log(
@@ -1182,8 +1200,8 @@ async function applyRepairTicketSheetProtection() {
     );
   }
 
-  const ours = onThisTab.filter((p) => p.info.description === SHEET_PROTECTION_DESCRIPTION);
-  const others = onThisTab.filter((p) => p.info.description !== SHEET_PROTECTION_DESCRIPTION);
+  const ours = onThisTab.filter((p) => String(p.info.description).startsWith(SHEET_PROTECTION_PREFIX));
+  const others = onThisTab.filter((p) => !String(p.info.description).startsWith(SHEET_PROTECTION_PREFIX));
   const blocked = others.filter((p) => !p.info.canEdit);
   if (blocked.length) {
     const lines = blocked.map((p) =>
@@ -1198,42 +1216,41 @@ async function applyRepairTicketSheetProtection() {
 
   const requests = [];
   const removed = [];
-  for (const p of others) {
+  for (const p of [...ours, ...others]) {
     requests.push({ deleteProtectedRange: { protectedRangeId: p.info.id } });
     removed.push(p.info.id);
   }
 
-  const protectedRange = {
-    description: SHEET_PROTECTION_DESCRIPTION,
-    warningOnly: false,
-    range: { sheetId }, // entire tab
-    unprotectedRanges: [
-      {
+  const editorBlock = protectionEditors(editors);
+  // Leave G2:G with NO protection — that is the only way the status
+  // dropdown stays visible after the bot writes a ticket row.
+  const newLocks = [
+    {
+      description: `${SHEET_PROTECTION_PREFIX} columns A-F (not status)`,
+      warningOnly: false,
+      range: { sheetId, startColumnIndex: 0, endColumnIndex: 6 },
+      editors: editorBlock,
+    },
+    {
+      description: `${SHEET_PROTECTION_PREFIX} columns H+ (not status)`,
+      warningOnly: false,
+      range: { sheetId, startColumnIndex: 7, endColumnIndex: 40 },
+      editors: editorBlock,
+    },
+    {
+      description: `${SHEET_PROTECTION_PREFIX} status header G1`,
+      warningOnly: false,
+      range: {
         sheetId,
-        startRowIndex: 1, // skip header
-        endRowIndex: Math.max(2, exclusiveEndRow),
-        startColumnIndex: 6, // G
+        startRowIndex: 0,
+        endRowIndex: 1,
+        startColumnIndex: 6,
         endColumnIndex: 7,
       },
-    ],
-    editors: {
-      users: editors,
-      domainUsersCanEdit: false,
+      editors: editorBlock,
     },
-  };
-
-  if (ours.length) {
-    requests.push({
-      updateProtectedRange: {
-        protectedRange: { ...protectedRange, protectedRangeId: ours[0].info.id },
-        fields: 'range,unprotectedRanges,editors,description,warningOnly',
-      },
-    });
-    for (const extraOurs of ours.slice(1)) {
-      requests.push({ deleteProtectedRange: { protectedRangeId: extraOurs.info.id } });
-      removed.push(extraOurs.info.id);
-    }
-  } else {
+  ];
+  for (const protectedRange of newLocks) {
     requests.push({ addProtectedRange: { protectedRange } });
   }
 
@@ -1242,19 +1259,22 @@ async function applyRepairTicketSheetProtection() {
     requestBody: { requests },
   });
 
-  const replies = res.data.replies || [];
-  const addedId = replies.find((r) => r.addProtectedRange)?.addProtectedRange?.protectedRange?.protectedRangeId
-    ?? ours[0]?.info.id
-    ?? null;
+  const addedIds = (res.data.replies || [])
+    .map((r) => r.addProtectedRange?.protectedRange?.protectedRangeId)
+    .filter((n) => Number.isInteger(n));
   if (removed.length) {
-    console.log(`[SHEETS] Removed ${removed.length} conflicting lock(s): ${removed.join(', ')}`);
+    console.log(`[SHEETS] Removed ${removed.length} previous lock(s): ${removed.join(', ')}`);
   }
   console.log(
-    `[SHEETS] repair_tickets locked — staff can edit G2:G${exclusiveEndRow} only. `
+    `[SHEETS] repair_tickets locked — column G (status) is unlocked so the dropdown works. `
     + `Full-access editors: ${editors.join(', ')}`
-    + (addedId != null ? ` (protection id ${addedId})` : ''),
+    + (addedIds.length ? ` (protection ids ${addedIds.join(', ')})` : ''),
   );
-  return { protectedRangeId: addedId, editors, removed };
+
+  await applyRepairTicketStatusDropdown();
+  console.log('[SHEETS] Status dropdown re-applied on column G.');
+
+  return { protectedRangeIds: addedIds, editors, removed };
 }
 
 module.exports = {

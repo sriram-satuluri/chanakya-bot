@@ -47,24 +47,23 @@ function canonicalStatus(s) {
 
 /**
  * Statuses that END the proactive-update lifecycle for a ticket.
- *   'Ready for Pickup' → send ONE "your bag is ready" message (always,
- *                        even if they declined progress reminders), then stop.
- *   'Picked Up'        → ticket closed; send a closed notice (always), then stop.
- *   'Cannot Repair'    → job cancelled; send a closed notice (always), then stop.
+ *   'Picked Up'     → ticket closed; send a closed notice (always), then stop.
+ *   'Cannot Repair' → job cancelled; send a closed notice (always), then stop.
+ * Ready for Pickup is NOT terminal: we keep reminding until they collect.
  * Maps to the stop_reason recorded on the ticket row.
  */
 const TERMINAL_STOP_REASON = {
-  'Ready for Pickup': 'completed',
-  'Picked Up':        'completed',
-  'Cannot Repair':    'cancelled',
+  'Picked Up':     'completed',
+  'Cannot Repair': 'cancelled',
 };
 
 /**
  * Status changes that WhatsApp the customer even when they declined
- * progress reminders. Ready-for-pickup and a closed ticket (collected or
- * cannot-repair) are operational, not marketing.
+ * progress reminders. Repair-complete, ready-for-pickup, and a closed
+ * ticket (collected or cannot-repair) are operational, not marketing.
  */
 const MANDATORY_CUSTOMER_NOTIFY_STATUSES = new Set([
+  'Repair Complete',
   'Ready for Pickup',
   'Picked Up',
   'Cannot Repair',
@@ -72,6 +71,11 @@ const MANDATORY_CUSTOMER_NOTIFY_STATUSES = new Set([
 
 function isMandatoryCustomerNotifyStatus(status) {
   return MANDATORY_CUSTOMER_NOTIFY_STATUSES.has(canonicalStatus(status));
+}
+
+/** Bag is on the shelf — keep pinging until staff mark Picked Up. */
+function isWaitingForPickup(status) {
+  return canonicalStatus(status) === 'Ready for Pickup';
 }
 
 /** @returns {'completed'|'cancelled'|null} */
@@ -91,4 +95,5 @@ module.exports = {
   canonicalStatus,
   terminalStopReason,
   isMandatoryCustomerNotifyStatus,
+  isWaitingForPickup,
 };

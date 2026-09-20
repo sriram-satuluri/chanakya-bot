@@ -21,7 +21,7 @@ const {
 const { formatIST, parseISTString, istHour, currentISTYear } = require('../src/utils/istTime');
 const {
   canonicalStatus, terminalStopReason, DEFAULT_REPAIR_TICKET_STATUS,
-  isMandatoryCustomerNotifyStatus,
+  isMandatoryCustomerNotifyStatus, isWaitingForPickup,
 } = require('../src/constants/repairTicketStatuses');
 const { sanitizeTemplateParam, isLikelySendablePhone } = require('../src/services/whatsapp');
 const { isRetryableSheetsError, withSheetsRetry } = require('../src/services/sheets');
@@ -105,16 +105,20 @@ test('canonicalStatus passes through a genuinely custom status', () => {
 });
 
 test('terminalStopReason classifies end states', () => {
-  assert.strictEqual(terminalStopReason('Ready for Pickup'), 'completed');
+  assert.strictEqual(terminalStopReason('Ready for Pickup'), null);
   assert.strictEqual(terminalStopReason('Picked Up'), 'completed');
   assert.strictEqual(terminalStopReason('Cannot Repair'), 'cancelled');
   assert.strictEqual(terminalStopReason('Bag Received'), null);
+  assert.strictEqual(terminalStopReason('Repair Complete'), null);
 });
 
-test('ready / closed statuses always notify the customer', () => {
+test('ready / closed / repair-complete statuses always notify the customer', () => {
+  assert.ok(isMandatoryCustomerNotifyStatus('Repair Complete'));
   assert.ok(isMandatoryCustomerNotifyStatus('Ready for Pickup'));
   assert.ok(isMandatoryCustomerNotifyStatus('Picked Up'));
   assert.ok(isMandatoryCustomerNotifyStatus('Cannot Repair'));
+  assert.ok(isWaitingForPickup('Ready for Pickup'));
+  assert.ok(!isWaitingForPickup('Picked Up'));
   assert.ok(!isMandatoryCustomerNotifyStatus('Bag Received'));
   assert.ok(!isMandatoryCustomerNotifyStatus('Repair In Progress'));
 });
@@ -768,7 +772,15 @@ test('opted-in customers get a 24h nudge when nothing has changed', () => {
   assert.strictEqual(d.reason, 'nudge');
 });
 
-test('declined reminders still get Ready for Pickup and closed tickets', () => {
+test('declined reminders still get Repair Complete, Ready for Pickup and closed tickets', () => {
+  const complete = decideAction({
+    status: 'Repair Complete',
+    lastStatusSent: 'Repair In Progress',
+    optedIn: false,
+  }, Date.now());
+  assert.strictEqual(complete.send, true);
+  assert.strictEqual(complete.reason, 'mandatory');
+
   const ready = decideAction({
     status: 'Ready for Pickup',
     lastStatusSent: 'Repair Complete',
@@ -776,6 +788,7 @@ test('declined reminders still get Ready for Pickup and closed tickets', () => {
   }, Date.now());
   assert.strictEqual(ready.send, true);
   assert.strictEqual(ready.reason, 'mandatory');
+  assert.ok(!ready.terminal);
 
   const closed = decideAction({
     status: 'Picked Up',
@@ -802,5 +815,48 @@ test('declined reminders do not get mid-repair progress pings', () => {
   }, Date.now());
   assert.strictEqual(d.send, false);
   assert.strictEqual(d.skip, 'not_opted_in');
+});
+
+test('Ready for Pickup keeps pinging every 23h until collected, even if they declined', () => {
+  const tooSoon = decideAction({
+    status: 'Ready for Pickup',
+    lastStatusSent: 'Ready for Pickup',
+    lastUpdateSentAt: new Date(Date.now() - 22 * HOUR),
+    optedIn: false,
+  }, Date.now());
+  assert.strictEqual(tooSoon.send, false);
+  assert.strictEqual(tooSoon.skip, 'waiting_pickup');
+
+  const due = decideAction({
+    status: 'Ready for Pickup',
+    lastStatusSent: 'Ready for Pickup',
+    lastUpdateSentAt: new Date(Date.now() - 23 * HOUR),
+    optedIn: false,
+  }, Date.now());
+  assert.strictEqual(due.send, true);
+  assert.strictEqual(due.reason, 'pickup_reminder');
+  assert.ok(!due.terminal);
+});
+
+test('opted-in Ready for Pickup uses the 23h pickup reminder, not the 24h progress nudge', () => {
+  const d = decideAction({
+    status: 'Ready for Pickup',
+    lastStatusSent: 'Ready for Pickup',
+    lastUpdateSentAt: new Date(Date.now() - 25 * HOUR),
+    optedIn: true,
+  }, Date.now());
+  assert.strictEqual(d.send, true);
+  assert.strictEqual(d.reason, 'pickup_reminder');
+});
+
+test('Picked Up is a one-shot close — no further pings after we told them', () => {
+  const d = decideAction({
+    status: 'Picked Up',
+    lastStatusSent: 'Picked Up',
+    lastUpdateSentAt: new Date(Date.now() - 25 * HOUR),
+    optedIn: true,
+  }, Date.now());
+  assert.strictEqual(d.send, false);
+  assert.strictEqual(d.skip, 'picked_up');
 });
 

@@ -247,10 +247,11 @@ phone | language | joined_at | opted_in | name
    * `Cannot Repair`
 4. Within **15 minutes** (during 10:00–19:00 IST), if `REPAIR_UPDATE_TEMPLATE_*` is set to approved Meta names:
    * **Opted in** — they get a WhatsApp when column G changes, and a nudge once every 24 hours if nothing changed.
-   * **Everyone** — they get a WhatsApp when the status is **Ready for Pickup**, **Picked Up** (ticket closed), or **Cannot Repair**, even if they tapped No on reminders.
+   * **Everyone** — they get a WhatsApp when the status is **Repair Complete**, **Ready for Pickup**, **Picked Up** (ticket closed), or **Cannot Repair**, even if they tapped No on reminders.
+   * **Ready for Pickup** — we keep messaging about every **23 hours** (10:00–19:00 IST) until staff mark **Picked Up**.
    * Otherwise they can still *Track My Repair* for free.
 
-**Do not type a custom status.** Use the column G dropdown (`npm run sheet:status-dropdown`). Lock staff to that column with `npm run sheet:protect`. After-photos (column I) are for staff; they are not auto-sent as a WhatsApp image.
+**Do not type a custom status.** Use the column G dropdown (`npm run sheet:status-dropdown`). Lock staff to that column with `npm run sheet:protect` (do not whole-tab lock in the Google UI — that hides the dropdown). After-photos (column I) are for staff; they are not auto-sent as a WhatsApp image.
 
 \---
 

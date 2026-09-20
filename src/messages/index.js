@@ -548,9 +548,9 @@ const messages = {
 
   // ── Proactive repair-update opt-in (per ticket) ──
   repair_updates_ask: {
-    english: `🔔 Would you like *repair reminders* on WhatsApp?\n\nWe'll message you when the ticket status changes, and once a day if nothing has changed.\n\nYou'll still hear from us when the bag is *ready for pickup* or the ticket is *closed* — even if you tap No.`,
-    hindi:   `🔔 क्या आप WhatsApp पर *रिपेयर रिमाइंडर* चाहेंगे?\n\nटिकट की स्थिति बदलने पर हम मैसेज करेंगे, और अगर कोई बदलाव न हो तो दिन में एक बार।\n\nबैग *पिकअप के लिए तैयार* होने या टिकट *बंद* होने पर हम वैसे भी बताएंगे — *नहीं* दबाने पर भी।`,
-    gujarati:`🔔 શું તમે WhatsApp પર *રિપેર રિમાઇન્ડર* ઈચ્છો છો?\n\nટિકિટની સ્થિતિ બદલાય ત્યારે અમે મેસેજ કરીશું, અને કશું ન બદલાય તો દિવસમાં એક વાર.\n\nબેગ *પિકઅપ માટે તૈયાર* થાય કે ટિકિટ *બંધ* થાય ત્યારે અમે તેમ છતાં જણાવીશું — *ના* દબાવો તો પણ.`,
+    english: `🔔 Would you like *repair reminders* on WhatsApp?\n\nWe'll message you when the ticket status changes, and once a day if nothing has changed.\n\nYou'll still hear from us when the repair is *complete*, the bag is *ready for pickup*, or the ticket is *closed* — even if you tap No. If it's ready and not collected, we'll remind you until you pick it up.`,
+    hindi:   `🔔 क्या आप WhatsApp पर *रिपेयर रिमाइंडर* चाहेंगे?\n\nटिकट की स्थिति बदलने पर हम मैसेज करेंगे, और अगर कोई बदलाव न हो तो दिन में एक बार।\n\nरिपेयर *पूरी* होने, बैग *पिकअप के लिए तैयार* होने, या टिकट *बंद* होने पर हम वैसे भी बताएंगे — *नहीं* दबाने पर भी। तैयार बैग न लेने तक हम याद दिलाते रहेंगे।`,
+    gujarati:`🔔 શું તમે WhatsApp પર *રિપેર રિમાઇન્ડર* ઈચ્છો છો?\n\nટિકિટની સ્થિતિ બદલાય ત્યારે અમે મેસેજ કરીશું, અને કશું ન બદલાય તો દિવસમાં એક વાર.\n\nરિપેર *પૂર્ણ* થાય, બેગ *પિકઅપ માટે તૈયાર* થાય, કે ટિકિટ *બંધ* થાય ત્યારે અમે તેમ છતાં જણાવીશું — *ના* દબાવો તો પણ. તૈયાર બેગ ન લો ત્યાં સુધી યાદ અપાવતા રહીશું.`,
   },
 
   repair_updates_on_confirm: {
@@ -560,16 +560,16 @@ const messages = {
   },
 
   repair_updates_off_confirm: {
-    english: `✅ Repair updates turned off. You can still check anytime with *track*, and reply *resume updates* to turn them back on.\n\nWe'll still message you when the bag is ready for pickup or the ticket is closed.`,
-    hindi:   `✅ रिपेयर अपडेट बंद कर दिए गए। *track* लिखकर कभी भी देख सकते हैं, और *अपडेट चालू* भेजकर दोबारा चालू कर सकते हैं।\n\nबैग तैयार होने या टिकट बंद होने पर हम वैसे भी मैसेज करेंगे।`,
-    gujarati:`✅ રિપેર અપડેટ બંધ કરી દીધા. *track* લખીને ગમે ત્યારે જોઈ શકો છો, અને *અપડેટ ચાલુ* મોકલીને ફરી ચાલુ કરી શકો છો.\n\nબેગ તૈયાર થાય કે ટિકિટ બંધ થાય ત્યારે અમે તેમ છતાં મેસેજ કરીશું.`,
+    english: `✅ Repair updates turned off. You can still check anytime with *track*, and reply *resume updates* to turn them back on.\n\nWe'll still message you when the repair is complete, the bag is ready for pickup (and remind you until you collect it), or the ticket is closed.`,
+    hindi:   `✅ रिपेयर अपडेट बंद कर दिए गए। *track* लिखकर कभी भी देख सकते हैं, और *अपडेट चालू* भेजकर दोबारा चालू कर सकते हैं।\n\nरिपेयर पूरी होने, बैग तैयार होने (ले जाने तक याद दिलाएंगे), या टिकट बंद होने पर हम वैसे भी मैसेज करेंगे।`,
+    gujarati:`✅ રિપેર અપડેટ બંધ કરી દીધા. *track* લખીને ગમે ત્યારે જોઈ શકો છો, અને *અપડેટ ચાલુ* મોકલીને ફરી ચાલુ કરી શકો છો.\n\nરિપેર પૂર્ણ થાય, બેગ તૈયાર થાય (લઈ જાઓ ત્યાં સુધી યાદ અપાવીશું), કે ટિકિટ બંધ થાય ત્યારે અમે તેમ છતાં મેસેજ કરીશું.`,
   },
 
   /** First-time "No" on the post-booking reminder question (not the standing command). */
   repair_updates_declined: {
-    english: `No problem — we won't send progress reminders.\n\nWe'll still message you here when the bag is *ready for pickup* or the ticket is *closed*. Track anytime with *track*.`,
-    hindi:   `कोई बात नहीं — प्रगति के रिमाइंडर नहीं भेजेंगे।\n\nबैग *पिकअप के लिए तैयार* होने या टिकट *बंद* होने पर हम यहाँ मैसेज करेंगे। कभी भी *track* लिखकर देख सकते हैं।`,
-    gujarati:`વાંધો નહીં — પ્રગતિના રિમાઇન્ડર નહીં મોકલીએ.\n\nબેગ *પિકઅપ માટે તૈયાર* થાય કે ટિકિટ *બંધ* થાય ત્યારે અમે અહીં મેસેજ કરીશું. ગમે ત્યારે *track* લખીને જોઈ શકો છો.`,
+    english: `No problem — we won't send progress reminders.\n\nWe'll still message you here when the repair is *complete*, the bag is *ready for pickup* (and remind you until you collect it), or the ticket is *closed*. Track anytime with *track*.`,
+    hindi:   `कोई बात नहीं — प्रगति के रिमाइंडर नहीं भेजेंगे।\n\nरिपेयर *पूरी* होने, बैग *पिकअप के लिए तैयार* होने (ले जाने तक याद दिलाएंगे), या टिकट *बंद* होने पर हम यहाँ मैसेज करेंगे। कभी भी *track* लिखकर देख सकते हैं।`,
+    gujarati:`વાંધો નહીં — પ્રગતિના રિમાઇન્ડર નહીં મોકલીએ.\n\nરિપેર *પૂર્ણ* થાય, બેગ *પિકઅપ માટે તૈયાર* થાય (લઈ જાઓ ત્યાં સુધી યાદ અપાવીશું), કે ટિકિટ *બંધ* થાય ત્યારે અમે અહીં મેસેજ કરીશું. ગમે ત્યારે *track* લખીને જોઈ શકો છો.`,
   },
 
   // ── Photo, asked after staff assignment, before the ticket is written ──

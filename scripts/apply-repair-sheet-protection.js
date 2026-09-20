@@ -8,7 +8,11 @@
  * service account. Staff must be shared as Editors (not Owners) — Google
  * always lets a file owner edit protected ranges.
  *
- * Re-run anytime; the protection is updated in place.
+ * Locks A–F, H and beyond, and G1. Column G from row 2 stays unlocked so
+ * the status dropdown still appears after the bot writes a ticket. A whole-
+ * tab lock with G as an exception hides that dropdown — do not use it.
+ *
+ * Re-run anytime; previous bot locks are replaced in place.
  */
 require('dotenv').config();
 const { applyRepairTicketSheetProtection } = require('../src/services/sheets');
