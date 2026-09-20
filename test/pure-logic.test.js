@@ -747,7 +747,7 @@ test('adding native greetings did not swallow the other native-script commands',
 });
 
 // ── Status poller: opt-in reminders vs always-on ready/closed ──
-const { decideAction } = require('../src/jobs/statusPoller');
+const { decideAction, shouldDeferForQuietHours } = require('../src/jobs/statusPoller');
 const HOUR = 60 * 60 * 1000;
 
 test('opted-in customers get a send on a real status change', () => {
@@ -858,5 +858,14 @@ test('Picked Up is a one-shot close — no further pings after we told them', ()
   }, Date.now());
   assert.strictEqual(d.send, false);
   assert.strictEqual(d.skip, 'picked_up');
+});
+
+test('quiet hours only delay daily nudges, not a staff status change', () => {
+  assert.strictEqual(shouldDeferForQuietHours('mandatory', false), false);
+  assert.strictEqual(shouldDeferForQuietHours('status_change', false), false);
+  assert.strictEqual(shouldDeferForQuietHours('nudge', false), true);
+  assert.strictEqual(shouldDeferForQuietHours('pickup_reminder', false), true);
+  assert.strictEqual(shouldDeferForQuietHours('nudge', true), false);
+  assert.strictEqual(shouldDeferForQuietHours('pickup_reminder', true), false);
 });
 

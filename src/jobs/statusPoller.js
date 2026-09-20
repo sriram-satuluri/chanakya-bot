@@ -3,7 +3,8 @@ const {
   recordProactiveUpdate,
 } = require('../services/sheets');
 const {
-  sendTemplateMessage, isLikelySendablePhone, sanitizeTemplateParam,
+  sendTemplateMessage, sendTextMessage, isLikelySendablePhone, sanitizeTemplateParam,
+  isOutsideWindowError,
 } = require('../services/whatsapp');
 const { getRecipientsForCorporate } = require('../utils/ownerPhones');
 const { notifyOwners } = require('../utils/ownerAlert');
@@ -21,10 +22,11 @@ const { istHour, formatIST } = require('../utils/istTime');
 /**
  * Proactive repair-status updates.
  *
- * Sends ALWAYS go out as an approved WhatsApp Utility template — we no longer
- * try to detect whether a free 24h service window is open, because Meta's
- * 1 Oct 2026 pricing change bills in-window replies too, so the old
- * free-vs-paid branch bought nothing but complexity and two code paths.
+ * Prefer an approved WhatsApp Utility template (works after the 24h customer
+ * window). Until REPAIR_UPDATE_TEMPLATE_EN/HI/GU are set, a column-G change
+ * is sent as in-session free-form text — that only delivers if the customer
+ * messaged us in the last 24 hours. Periodic nudges stay off until templates
+ * exist (they almost always miss that window).
  *
  * Per-ticket state lives in repair_tickets Q-U (opted_in, last_status_sent,
  * last_update_sent_at, stop_reason, consecutive_failure_count) — the sheet is
@@ -37,10 +39,13 @@ const { istHour, formatIST } = require('../utils/istTime');
  * Ready for Pickup we keep pinging every REPAIR_PICKUP_REMIND_HOURS (23)
  * until staff mark Picked Up.
  *
- * EXTERNAL SETUP REQUIRED: three Utility templates must exist and be approved
- * in Meta Business Manager (en/hi/gu), each taking four body variables:
- *   {{1}} customer name · {{2}} ticket id · {{3}} current status · {{4}} store
- * Names are configurable via REPAIR_UPDATE_TEMPLATE_EN/HI/GU.
+ * Quiet hours (default 10:00–19:00 IST) apply to *periodic* pings only.
+ * A staff status change is sent as soon as the next poll runs, including
+ * evenings — otherwise a 7:30pm "Ready for Pickup" sits until 10am.
+ *
+ * EXTERNAL SETUP: three Utility templates in Meta Business Manager (en/hi/gu),
+ * four body variables: {{1}} name · {{2}} ticket id · {{3}} status · {{4}} store
+ * Names: REPAIR_UPDATE_TEMPLATE_EN/HI/GU.
  */
 
 /** Only message customers between these IST hours (inclusive start, exclusive end).
@@ -82,6 +87,40 @@ function logPhone(p) {
 function withinSendWindow(now = new Date()) {
   const h = istHour(now);
   return h >= QUIET_START_HOUR && h < QUIET_END_HOUR;
+}
+
+function isPeriodicUpdateReason(reason) {
+  return reason === 'nudge' || reason === 'pickup_reminder';
+}
+
+/** Daily nudges wait for 10:00–19:00 IST. A column-G status change does not. */
+function shouldDeferForQuietHours(reason, inWindow) {
+  return isPeriodicUpdateReason(reason) && !inWindow;
+}
+
+const FREEFORM_STATUS_KEY = {
+  'Bag Received':        'status_bag_received',
+  'Inspection Done':     'status_inspection_done',
+  'Repair In Progress':  'status_repair_in_progress',
+  'Repair Complete':     'status_repair_complete',
+  'Ready for Pickup':    'status_ready_pickup',
+  'Cannot Repair':       'status_cannot_repair',
+  'Picked Up':           'status_picked_up',
+};
+
+function freeformStatusBody(t, lang) {
+  const status = canonicalStatus(t.status);
+  const key = FREEFORM_STATUS_KEY[status]
+    || (status === canonicalStatus(DEFAULT_REPAIR_TICKET_STATUS)
+      ? 'status_physical_pending'
+      : 'status_poller_generic');
+  return M.fill(M.get(key, lang), {
+    ticketId: t.ticketId,
+    store: t.store || '—',
+    status: M.statusLabel(status, lang),
+    afterPhotoText: '',
+    estimatedPickup: '—',
+  });
 }
 
 function hoursElapsed(since, nowMs) {
@@ -158,15 +197,15 @@ function decideAction(t, now) {
 
 async function pollStatusChanges() {
   const now = new Date();
+  const inWindow = withinSendWindow(now);
+  const templatesReady = repairUpdatesReady();
 
-  if (!repairUpdatesReady()) {
-    console.log('[PROACTIVE] Repair-update templates not set (REPAIR_UPDATE_TEMPLATE_EN/HI/GU) — skipping. Opt-in will not be offered until these are approved in Meta.');
-    return;
+  if (!templatesReady) {
+    console.log('[PROACTIVE] REPAIR_UPDATE_TEMPLATE_EN/HI/GU unset — status changes use in-session text (fails after 24h of silence). Periodic nudges stay off until Meta approves those Utility templates.');
   }
 
-  if (!withinSendWindow(now)) {
-    console.log(`[PROACTIVE] Outside send window (${QUIET_START_HOUR}:00-${QUIET_END_HOUR}:00 IST, now ${istHour(now)}:xx) — skipping.`);
-    return;
+  if (!inWindow) {
+    console.log(`[PROACTIVE] Outside quiet hours (${QUIET_START_HOUR}:00-${QUIET_END_HOUR}:00 IST, now ${istHour(now)}:xx) — status-change messages still send; daily nudges wait.`);
   }
 
   let tickets;
@@ -211,6 +250,16 @@ async function pollStatusChanges() {
 
     if (!decision.send) { skipped++; continue; }
 
+    if (shouldDeferForQuietHours(decision.reason, inWindow)) {
+      skipped++;
+      continue;
+    }
+
+    if (isPeriodicUpdateReason(decision.reason) && !templatesReady) {
+      skipped++;
+      continue;
+    }
+
     if (!isLikelySendablePhone(t.phone)) {
       console.warn(`[PROACTIVE] ticket=${t.ticketId} has missing/invalid phone — skipping`);
       skipped++;
@@ -219,12 +268,13 @@ async function pollStatusChanges() {
 
     const lang = t.language === 'hindi' || t.language === 'gujarati' ? t.language : 'english';
     const resolved = resolveRepairUpdateTemplate(lang);
-    if (!resolved) {
+    const useTemplate = Boolean(resolved);
+    if (!useTemplate && isPeriodicUpdateReason(decision.reason)) {
       skipped++;
       continue;
     }
-    const { name: templateName, langCode } = resolved;
-    const statusText = M.statusLabel(t.status, lang);
+    const templateName = useTemplate ? resolved.name : 'freeform';
+    const langCode = useTemplate ? resolved.langCode : lang;
 
     // Only the SEND lives in this try. A Sheets write failure must never be
     // mistaken for a delivery failure — doing so would increment the
@@ -233,19 +283,34 @@ async function pollStatusChanges() {
     let sendResult = null;
     let sendError = null;
     try {
-      sendResult = await sendTemplateMessage(t.phone, templateName, langCode, [{
-        type: 'body',
-        // Every value is sanitized: these originate from customer free-text /
-        // staff-typed sheet cells, and Meta rejects params containing newlines,
-        // tabs, or 4+ consecutive spaces.
-        parameters: [
-          { type: 'text', text: sanitizeTemplateParam(t.customerName, 60, 'there') },
-          { type: 'text', text: sanitizeTemplateParam(t.ticketId, 40, '—') },
-          { type: 'text', text: sanitizeTemplateParam(statusText, 200, '—') },
-          { type: 'text', text: sanitizeTemplateParam(t.store, 100, '—') },
-        ],
-      }]);
+      if (useTemplate) {
+        const statusText = M.statusLabel(t.status, lang);
+        sendResult = await sendTemplateMessage(t.phone, templateName, langCode, [{
+          type: 'body',
+          // Every value is sanitized: these originate from customer free-text /
+          // staff-typed sheet cells, and Meta rejects params containing newlines,
+          // tabs, or 4+ consecutive spaces.
+          parameters: [
+            { type: 'text', text: sanitizeTemplateParam(t.customerName, 60, 'there') },
+            { type: 'text', text: sanitizeTemplateParam(t.ticketId, 40, '—') },
+            { type: 'text', text: sanitizeTemplateParam(statusText, 200, '—') },
+            { type: 'text', text: sanitizeTemplateParam(t.store, 100, '—') },
+          ],
+        }]);
+      } else {
+        sendResult = await sendTextMessage(t.phone, freeformStatusBody(t, lang));
+      }
     } catch (err) {
+      const metaCode = err.response?.data?.error?.code;
+      if (!useTemplate && isOutsideWindowError(metaCode)) {
+        console.warn(
+          `[PROACTIVE] ticket=${t.ticketId} phone=${logPhone(t.phone)} `
+          + `free-form blocked (Meta ${metaCode} — 24h window closed). `
+          + `Set approved REPAIR_UPDATE_TEMPLATE_* to reach them. Not counting as a delivery failure.`,
+        );
+        skipped++;
+        continue;
+      }
       sendError = err;
     }
 
@@ -256,7 +321,8 @@ async function pollStatusChanges() {
       // Audit line — one per billable send, greppable as [PROACTIVE].
       console.log(
         `[PROACTIVE] ticket=${t.ticketId} phone=${logPhone(t.phone)} lang=${lang} `
-        + `template=${templateName} reason=${decision.reason} status=accepted wamid=${wamid} at=${formatIST(now)}`,
+        + `channel=${useTemplate ? 'template' : 'freeform'} template=${templateName} `
+        + `reason=${decision.reason} status=accepted wamid=${wamid} at=${formatIST(now)}`,
       );
       sent++;
       patch = { statusSent: t.status, sentAt: now, failureCount: 0 };
@@ -350,4 +416,6 @@ async function alertOwnersOfAutoUnsubscribe(items) {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-module.exports = { pollStatusChanges, decideAction, withinSendWindow };
+module.exports = {
+  pollStatusChanges, decideAction, withinSendWindow, shouldDeferForQuietHours,
+};

@@ -302,6 +302,18 @@ const messages = {
     gujarati:`😔 *સ્ટેટસ અપડેટ — {{ticketId}}*\n\nસંપૂર્ણ ચકાસણી પછી, દુ:ખ સાથે જણાવવાનું કે *આ નુકસાન રિપેર થઈ શકે એમ નથી.*\n\nઆપની બેગ લેવા *{{store}}* પર આવો.\nઅસુવિધા બદલ ક્ષમા કરશો.\n\n${defaultCallLine()}`,
   },
 
+  status_repair_complete: {
+    english: `✅ *Status Update — {{ticketId}}*\n\nThe repair is *complete*. We'll message you as soon as it's ready for pickup at *{{store}}*.`,
+    hindi:   `✅ *स्थिति अपडेट — {{ticketId}}*\n\nरिपेयर *पूरी* हो गई है। *{{store}}* पर पिकअप के लिए तैयार होते ही हम मैसेज करेंगे।`,
+    gujarati:`✅ *સ્ટેટસ અપડેટ — {{ticketId}}*\n\nરિપેર *પૂર્ણ* થઈ. *{{store}}* પર પિકઅપ માટે તૈયાર થાય કે તરત અમે મેસેજ કરીશું.`,
+  },
+
+  status_picked_up: {
+    english: `✅ Ticket *{{ticketId}}* — this bag has been *collected*. Thank you for choosing Chanakya! 🎒`,
+    hindi:   `✅ Ticket *{{ticketId}}* — यह बैग *ले लिया* गया है। Chanakya चुनने के लिए धन्यवाद! 🎒`,
+    gujarati:`✅ Ticket *{{ticketId}}* — આ બેગ *લઈ લેવાઈ* છે. Chanakya પસંદ કરવા બદલ આભાર! 🎒`,
+  },
+
   store_intro: {
     english: `🗺️ *Our Stores — Chanakya Bag Studio*\n\nWe have *2 stores* in Vadodara.\n⏰ *10 AM – 9 PM* (Mon – Sun)\n\nPick a store below — we’ll open *Google Maps driving directions* to that door.`,
     hindi:   `🗺️ *हमारे स्टोर — Chanakya Bag Studio*\n\nवडोदरा में *2 स्टोर।*\n⏰ *सुबह 10 – रात 9* (सोम – रवि)\n\nनीचे स्टोर चुनें — *Google Maps दिशा–निर्देश* खुलेंगे।`,

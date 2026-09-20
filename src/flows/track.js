@@ -12,7 +12,7 @@ const STATUS_MSG_KEY = {
   'Bag Received':        'status_bag_received',
   'Inspection Done':     'status_inspection_done',
   'Repair In Progress':  'status_repair_in_progress',
-  'Repair Complete':     'status_repair_in_progress', // reuse
+  'Repair Complete':     'status_repair_complete',
   'Ready for Pickup':    'status_ready_pickup',
   'Cannot Repair':       'status_cannot_repair',
 };
