@@ -8,26 +8,22 @@ const M = require('../messages/index');
 const _rd = (p) => (p && p.length > 4) ? '***' + p.slice(-4) : '***';
 
 /**
- * "Marketplace", not "Corporate Marketplace": WhatsApp caps button titles at 20
- * characters and sendButtonMessage truncates silently, so the full phrase would
- * ship as "🛍️ Corporate Marketp". The full name is used in the catalogue header
- * the moment they tap through, which is where there is room for it.
+ * Reply buttons are capped at 20 characters, so "Corporate Marketplace"
+ * cannot live on this row. Repair + Track stay here; the full name is the
+ * first row of the options list (24-char titles).
  */
 const MENU_BUTTONS = {
   english: [
     { id: 'btn_repair', title: '🔧 Repair My Bag' },
     { id: 'btn_track',  title: '📍 Track My Repair' },
-    { id: 'btn_shop',   title: '🛍️ Marketplace' },
   ],
   hindi: [
     { id: 'btn_repair', title: '🔧 बैग रिपेयर करें' },
     { id: 'btn_track',  title: '📍 रिपेयर ट्रैक करें' },
-    { id: 'btn_shop',   title: '🛍️ मार्केटप्लेस' },
   ],
   gujarati: [
     { id: 'btn_repair', title: '🔧 બેગ રિપેર કરો' },
     { id: 'btn_track',  title: '📍 રિપેર ટ્રૅક કરો' },
-    { id: 'btn_shop',   title: '🛍️ માર્કેટપ્લેસ' },
   ],
 };
 
@@ -46,6 +42,7 @@ const MENU_BUTTONS = {
  */
 const MENU_LIST_ROWS = {
   english: [
+    { id: 'btn_shop',      title: 'Corporate Marketplace', description: 'Browse bags, gifts and more' },
     { id: 'btn_human',     title: '👤 Talk to a Person',  description: 'Reach our team directly' },
     { id: 'btn_location',  title: '🗺️ Store Locations',   description: 'Addresses and directions' },
     { id: 'btn_corporate', title: '🤝 Bulk / Corporate',  description: 'Bulk orders and custom printing' },
@@ -53,6 +50,7 @@ const MENU_LIST_ROWS = {
     { id: 'btn_terms',     title: '📜 Terms & Conditions', description: 'Read our full terms' },
   ],
   hindi: [
+    { id: 'btn_shop',      title: 'कॉर्पोरेट मार्केटप्लेस', description: 'बैग, गिफ्ट और और देखें' },
     { id: 'btn_human',     title: '👤 स्टाफ से बात करें', description: 'सीधे हमारी टीम से संपर्क' },
     { id: 'btn_location',  title: '🗺️ स्टोर का पता',      description: 'पता और रास्ता' },
     { id: 'btn_corporate', title: '🤝 बल्क/कॉर्पोरेट',    description: 'बल्क ऑर्डर और कस्टम प्रिंटिंग' },
@@ -60,6 +58,7 @@ const MENU_LIST_ROWS = {
     { id: 'btn_terms',     title: '📜 नियम और शर्तें',     description: 'पूरी Terms पढ़ें' },
   ],
   gujarati: [
+    { id: 'btn_shop',      title: 'કોર્પોરેટ માર્કેટપ્લેસ', description: 'બેગ, ગિફ્ટ અને વધુ જુઓ' },
     { id: 'btn_human',     title: '👤 સ્ટાફ સાથે વાત',    description: 'સીધો અમારી ટીમનો સંપર્ક' },
     { id: 'btn_location',  title: '🗺️ સ્ટોરનું સ્થળ',      description: 'સરનામું અને રસ્તો' },
     { id: 'btn_corporate', title: '🤝 બલ્ક / કૉર્પોરેટ',  description: 'બલ્ક ઓર્ડર અને કસ્ટમ પ્રિન્ટિંગ' },

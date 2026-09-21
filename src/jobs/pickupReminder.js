@@ -7,9 +7,9 @@ const M = require('../messages/index');
 /**
  * 7-day "please collect your bag" reminder. Off by default.
  *
- * Daily collection pings now live on the status poller (Ready for Pickup,
- * every REPAIR_PICKUP_REMIND_HOURS, Utility template). This job is the old
- * 7-day free-form chase — leave it off. It only delivers inside WhatsApp's
+ * Collection pings now live on the status poller (Ready for Pickup,
+ * weekly for 4 weeks / REPAIR_PICKUP_REMIND_DAYS, Utility template). This
+ * job is the old 7-day free-form chase — leave it off. It only delivers inside WhatsApp's
  * 24h customer-service window, which a bag sitting for 7 days almost never
  * has, and will fail with Meta 131047 if enabled.
  */

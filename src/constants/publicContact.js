@@ -22,8 +22,10 @@ const NILESH_PHONE_DISPLAY = '+91 99740 17727';
 
 /**
  * Shared customer-care line shown on repair-ticket confirmations, after the
- * branch's own store number. Not used for owner alerts or human handoff.
+ * branch's own store number. Named contact: Sandip bhai. Not used for owner
+ * alerts or human handoff.
  */
+const CUSTOMER_CARE_NAME = 'Sandip bhai';
 const CUSTOMER_CARE_PHONE_DISPLAY = '+91 70483 82178';
 
 /**
@@ -98,7 +100,7 @@ function ticketPhonesForBranch(slug) {
   const label = slug === 'alkapuri' ? '*Alkapuri store*' : '*Sursagar store*';
   const lines = [];
   if (storePhone) lines.push(`${label} — ${storePhone}`);
-  lines.push(`*Customer care* — ${CUSTOMER_CARE_PHONE_DISPLAY}`);
+  lines.push(`*${CUSTOMER_CARE_NAME}* — ${CUSTOMER_CARE_PHONE_DISPLAY}`);
   return lines.join('\n');
 }
 

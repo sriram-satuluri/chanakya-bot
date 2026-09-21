@@ -1,7 +1,6 @@
 const { sendButtonMessage, sendTextMessage } = require('../services/whatsapp');
 const { setRepairUpdatesOptIn, getOpenTicketsForPhone } = require('../services/sheets');
 const { updateSession, clearSession } = require('../utils/sessionStore');
-const { repairUpdatesReady } = require('../utils/metaTemplates');
 const { handleEscalation } = require('./escalate');
 const M = require('../messages/index');
 
@@ -19,11 +18,9 @@ const OPTIN_BUTTONS = {
  * Parks the session on 'repair_updates' so the reply routes back here.
  */
 async function askRepairUpdatesOptIn(phone, lang, ticketId) {
-  // Don't promise WhatsApp updates we cannot send (unapproved templates would
-  // fail 3× and silently unsubscribe them). The photo has already been asked.
-  if (!repairUpdatesReady()) {
-    return;
-  }
+  // Always ask. Status changes go out as in-session text until Utility
+  // templates are approved; skipping this question made it look like the
+  // bot had no reminder option at all.
   updateSession(phone, {
     currentFlow: 'repair_updates',
     flowStep: 'ask_optin',

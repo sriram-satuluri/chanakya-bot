@@ -468,6 +468,8 @@ test('repair-ticket contacts are store number first, then customer care', () => 
     'Sursagar store number comes before customer care');
   assert.ok(!alka.includes('Vatsal Joshi'), 'ticket block is not the people directory');
   assert.ok(!sur.includes('Nilesh Joshi'), 'ticket block is not the people directory');
+  assert.ok(alka.includes('Sandip bhai'), 'customer-care line is named Sandip bhai');
+  assert.ok(sur.includes('Sandip bhai'), 'customer-care line is named Sandip bhai');
 });
 
 test('the bulk category prompt tells people to come back to the chat', () => {
@@ -514,16 +516,21 @@ test('the marketplace rename is consistent across menu, terms and catalogue', ()
   const menu = read('flows/mainMenu.js');
   const terms = read('flows/terms.js');
   const catalog = read('flows/catalog.js');
+  const updates = read('flows/repairUpdates.js');
   // The old English label is gone from every entry point.
   for (const [name, text] of [['mainMenu', menu], ['terms', terms]]) {
     assert.ok(!/title:\s*'🛍️ Shop'/.test(text), `${name} still offers "Shop"`);
-    assert.ok(/Marketplace/.test(text), `${name} offers the Marketplace label`);
   }
-  // The full name survives where there is room for it.
+  assert.ok(/Corporate Marketplace/.test(menu), 'main menu list has the full name');
+  // Reply buttons cap at 20 chars — "Corporate Marketplace" is 21, so terms
+  // uses the longest legal prefix.
+  assert.ok(/Corporate Market/.test(terms), 'terms back-button is Corporate Market');
   assert.ok(/🛍️ Corporate Marketplace/.test(catalog), 'catalogue header carries the full name');
-  // And typing it back reaches the catalogue.
+  // Opt-in is asked even when Utility templates are not configured.
+  assert.ok(!/repairUpdatesReady/.test(updates), 'reminder question must not hide behind templates');
   const { detectIntent } = require('../src/utils/intentDetect');
   assert.strictEqual(detectIntent('marketplace', { phone: null }), 'shop_catalog');
+  assert.strictEqual(detectIntent('corporate marketplace', { phone: null }), 'shop_catalog');
 });
 
 // ── Intent shadowing ──────────────────────────────────────────
@@ -828,11 +835,12 @@ test('a new status is not blocked by the 10-minute same-status gap', () => {
   assert.strictEqual(d.reason, 'mandatory');
 });
 
-test('Ready for Pickup keeps pinging every 23h until collected, even if they declined', () => {
+test('Ready for Pickup reminds weekly for 4 weeks, then stops', () => {
   const tooSoon = decideAction({
     status: 'Ready for Pickup',
     lastStatusSent: 'Ready for Pickup',
-    lastUpdateSentAt: new Date(Date.now() - 22 * HOUR),
+    lastUpdateSentAt: new Date(Date.now() - 6 * 24 * HOUR),
+    readyForPickupAt: new Date(Date.now() - 6 * 24 * HOUR),
     optedIn: false,
   }, Date.now());
   assert.strictEqual(tooSoon.send, false);
@@ -841,23 +849,45 @@ test('Ready for Pickup keeps pinging every 23h until collected, even if they dec
   const due = decideAction({
     status: 'Ready for Pickup',
     lastStatusSent: 'Ready for Pickup',
-    lastUpdateSentAt: new Date(Date.now() - 23 * HOUR),
+    lastUpdateSentAt: new Date(Date.now() - 7 * 24 * HOUR),
+    readyForPickupAt: new Date(Date.now() - 7 * 24 * HOUR),
     optedIn: false,
   }, Date.now());
   assert.strictEqual(due.send, true);
   assert.strictEqual(due.reason, 'pickup_reminder');
   assert.ok(!due.terminal);
+
+  const lastWeek = decideAction({
+    status: 'Ready for Pickup',
+    lastStatusSent: 'Ready for Pickup',
+    lastUpdateSentAt: new Date(Date.now() - 7 * 24 * HOUR),
+    readyForPickupAt: new Date(Date.now() - 28 * 24 * HOUR),
+    optedIn: false,
+  }, Date.now());
+  assert.strictEqual(lastWeek.send, true);
+  assert.strictEqual(lastWeek.reason, 'pickup_reminder');
+
+  const expired = decideAction({
+    status: 'Ready for Pickup',
+    lastStatusSent: 'Ready for Pickup',
+    lastUpdateSentAt: new Date(Date.now() - 7 * 24 * HOUR),
+    readyForPickupAt: new Date(Date.now() - 28 * 24 * HOUR - HOUR),
+    optedIn: false,
+  }, Date.now());
+  assert.strictEqual(expired.send, false);
+  assert.strictEqual(expired.stopReason, 'holding_expired');
 });
 
-test('opted-in Ready for Pickup uses the 23h pickup reminder, not the 24h progress nudge', () => {
+test('opted-in Ready for Pickup uses the weekly pickup reminder, not the 24h progress nudge', () => {
   const d = decideAction({
     status: 'Ready for Pickup',
     lastStatusSent: 'Ready for Pickup',
     lastUpdateSentAt: new Date(Date.now() - 25 * HOUR),
+    readyForPickupAt: new Date(Date.now() - 25 * HOUR),
     optedIn: true,
   }, Date.now());
-  assert.strictEqual(d.send, true);
-  assert.strictEqual(d.reason, 'pickup_reminder');
+  assert.strictEqual(d.send, false);
+  assert.strictEqual(d.skip, 'waiting_pickup');
 });
 
 test('Picked Up is a one-shot close — no further pings after we told them', () => {
@@ -875,7 +905,7 @@ test('quiet hours only delay daily nudges, not a staff status change', () => {
   assert.strictEqual(shouldDeferForQuietHours('mandatory', false), false);
   assert.strictEqual(shouldDeferForQuietHours('status_change', false), false);
   assert.strictEqual(shouldDeferForQuietHours('nudge', false), true);
-  assert.strictEqual(shouldDeferForQuietHours('pickup_reminder', false), true);
+  assert.strictEqual(shouldDeferForQuietHours('pickup_reminder', false), false);
   assert.strictEqual(shouldDeferForQuietHours('nudge', true), false);
   assert.strictEqual(shouldDeferForQuietHours('pickup_reminder', true), false);
 });

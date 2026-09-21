@@ -33,15 +33,14 @@ const { istHour, formatIST } = require('../utils/istTime');
  * the single source of truth, so this survives a redeploy with no local
  * snapshot file to keep in sync.
  *
- * Progress reminders (status change + a daily nudge) only go to opted-in
- * tickets. Repair Complete, Ready for Pickup, Picked Up, and Cannot Repair
- * always notify, even if they declined reminders. While the bag sits on
- * Ready for Pickup we keep pinging every REPAIR_PICKUP_REMIND_HOURS (23)
- * until staff mark Picked Up.
+ * Progress reminders: every column-G change WhatsApps. The daily "still in
+ * progress" nudge is opted-in only. Ready for Pickup: first message on the
+ * status change, then the same weekday/time every 7 days for 4 weeks
+ * (28-day inventory hold), then stop.
  *
- * Quiet hours (default 10:00–19:00 IST) apply to *periodic* pings only.
- * A staff status change is sent as soon as the next poll runs, including
- * evenings — otherwise a 7:30pm "Ready for Pickup" sits until 10am.
+ * Quiet hours (default 10:00–19:00 IST) apply to the daily in-progress nudge
+ * only. A staff status change and the weekly collect reminder keep the clock
+ * time of the original send.
  *
  * EXTERNAL SETUP: three Utility templates in Meta Business Manager (en/hi/gu),
  * four body variables: {{1}} name · {{2}} ticket id · {{3}} status · {{4}} store
@@ -57,9 +56,11 @@ const QUIET_END_HOUR = envInt('PROACTIVE_END_HOUR', 19, { min: 0, max: 24 });
  *  (opted-in tickets only, never while waiting for pickup). 0 disables. */
 const NUDGE_AFTER_HOURS = envInt('REPAIR_UPDATE_NUDGE_HOURS', 24, { min: 0 });
 
-/** Hours between "please collect" pings while status is Ready for Pickup.
- *  Independent of opt-in. 0 disables repeats (the first ready message still sends). */
-const PICKUP_REMIND_HOURS = envInt('REPAIR_PICKUP_REMIND_HOURS', 23, { min: 0 });
+/** Days between "please collect" pings while status is Ready for Pickup.
+ *  First ping is the status-change message; repeats are weekly. 0 disables repeats. */
+const PICKUP_REMIND_DAYS = envInt('REPAIR_PICKUP_REMIND_DAYS', 7, { min: 0 });
+/** Stop collect-reminders this many days after the bag was marked ready (inventory hold). */
+const PICKUP_HOLD_DAYS = envInt('REPAIR_PICKUP_HOLD_DAYS', 28, { min: 1 });
 
 /** Consecutive send failures for a number before we stop trying for that ticket. */
 const MAX_CONSECUTIVE_FAILURES = 3;
@@ -93,9 +94,10 @@ function isPeriodicUpdateReason(reason) {
   return reason === 'nudge' || reason === 'pickup_reminder';
 }
 
-/** Daily nudges wait for 10:00–19:00 IST. A column-G status change does not. */
+/** Daily in-progress nudges wait for 10:00–19:00 IST. Status changes and the
+ *  weekly collect reminder do not — they keep the original clock time. */
 function shouldDeferForQuietHours(reason, inWindow) {
-  return isPeriodicUpdateReason(reason) && !inWindow;
+  return reason === 'nudge' && !inWindow;
 }
 
 const FREEFORM_STATUS_KEY = {
@@ -176,12 +178,19 @@ function decideAction(t, now) {
     return { send: false, skip: 'recently_sent' };
   }
 
-  // Ready for pickup, already notified — keep reminding until they collect.
-  // Independent of the progress-reminder opt-in.
-  if (waitingPickup && PICKUP_REMIND_HOURS > 0) {
-    const elapsed = hoursElapsed(t.lastUpdateSentAt || t.createdAt, now);
-    if (elapsed != null && elapsed >= PICKUP_REMIND_HOURS) {
-      return { send: true, reason: 'pickup_reminder', terminal: null };
+  // Ready for pickup, already notified — weekly collect reminder until the
+  // 28-day hold ends. Same weekday/time as the first ready message.
+  if (waitingPickup) {
+    const readyAt = t.readyForPickupAt || t.lastUpdateSentAt || t.createdAt;
+    const heldHrs = hoursElapsed(readyAt, now);
+    if (PICKUP_HOLD_DAYS > 0 && heldHrs != null && heldHrs > PICKUP_HOLD_DAYS * 24) {
+      return { send: false, skip: 'holding_expired', stopReason: 'holding_expired' };
+    }
+    if (PICKUP_REMIND_DAYS > 0) {
+      const sinceLast = hoursElapsed(t.lastUpdateSentAt || readyAt, now);
+      if (sinceLast != null && sinceLast >= PICKUP_REMIND_DAYS * 24) {
+        return { send: true, reason: 'pickup_reminder', terminal: null };
+      }
     }
     return { send: false, skip: 'waiting_pickup' };
   }
@@ -328,6 +337,9 @@ async function pollStatusChanges() {
       );
       sent++;
       patch = { statusSent: t.status, sentAt: now, failureCount: 0 };
+      if (isWaitingForPickup(t.status) && !t.readyForPickupAt) {
+        patch.readyForPickupAt = now;
+      }
       if (decision.terminal) {
         // Picked up / cannot repair: this was the final message.
         patch.optedIn = false;

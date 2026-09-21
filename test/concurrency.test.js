@@ -220,8 +220,22 @@ test('merging did not drop the ticket id, the T&C line, or the store numbers', a
   assert.ok(confirmation.includes('accept our Terms'), 'T&C acceptance line must survive');
   assert.ok(confirmation.includes('+91 99740 17723'), 'Alkapuri store number first');
   assert.ok(confirmation.includes('+91 70483 82178'), 'shared customer-care line');
+  assert.ok(confirmation.includes('Sandip bhai'), 'named as Sandip bhai');
   assert.ok(!confirmation.includes('Vatsal Joshi'), 'named directory is not on the ticket');
   assert.ok(confirmation.length < 4000, `must stay under the WhatsApp limit, was ${confirmation.length}`);
+});
+
+test('the reminders question is asked even without Utility templates', async () => {
+  delete process.env.REPAIR_UPDATE_TEMPLATE_EN;
+  delete process.env.REPAIR_UPDATE_TEMPLATE_HI;
+  delete process.env.REPAIR_UPDATE_TEMPLATE_GU;
+  outbound.length = 0;
+  const phone = '919777000203';
+  await handleRepairFlow(phone, 'btn_skip_photo', 'interactive', {}, photoSession(phone));
+  const msgs = outbound.filter((m) => m.to === phone);
+  assert.ok(msgs.some((m) => /daily ping/i.test(m.body)), 'opt-in question after ticket');
+  assert.ok(msgs.some((m) => (m.buttons || []).includes('ru_yes')), 'Yes is tappable');
+  assert.ok(msgs.some((m) => (m.buttons || []).includes('ru_no')), 'No is tappable');
 });
 
 // ── Optional salesperson assignment ───────────────────────────

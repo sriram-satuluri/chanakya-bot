@@ -60,7 +60,8 @@ const intentMap = [
     keywords: ['shop', 'buy', 'kharidna', 'kharido', 'catalog', 'price',
       'kitna', 'kimat', 'rate', 'how much', 'show bags', 'bags dikhao',
       'luggage', 'backpack', 'trolley', 'handbag', 'marketplace',
-      'मार्केटप्लेस', 'માર્કેટપ્લેસ',
+      'corporate marketplace',
+      'मार्केटप्लेस', 'कॉर्पोरेट मार्केटप्लेस', 'માર્કેટપ્લેસ', 'કોર્પોરેટ માર્કેટપ્લેસ',
       // ── DRAFT — PENDING VEDANT & VATSAL REVIEW (see NATIVE_SCRIPT_DRAFT) ──
       // NB: bare 'बैग' / 'બેગ' deliberately absent — too generic, it appears
       // in repair and tracking messages just as often as in buying ones.

@@ -192,7 +192,7 @@ Cell **P1** is the ticket counter. Initialise to `0` only when empty — never r
 
 ### Tab: product\_catalog
 
-Sheet tab still exists (headers below) for completeness. **The Shop flow does not read it** — it deep-links to the live website (`www.chanakyacorporate.com`, set once as `CATALOG_SITE` in `src/constants/catalogCategories.js`).
+Sheet tab still exists (headers below) for completeness. **The Corporate Marketplace flow does not read it** — it deep-links to the live website (`www.chanakyacorporate.com`, set once as `CATALOG_SITE` in `src/constants/catalogCategories.js`).
 
 ```
 product_id | category | brand | name | price_range | in_stock | description_en | description_hi | description_gu | image_url | store_availability
@@ -247,7 +247,7 @@ phone | language | joined_at | opted_in | name
    * `Cannot Repair`
 4. Within **15 minutes** (any time of day for a status change; daily nudges only **10:00–19:00 IST**):
    * **Every G change** — they get a WhatsApp (Bag Received through Picked Up). The post-booking Yes/No only controls the extra once-a-day ping if nothing moved.
-   * **Ready for Pickup** — we keep messaging about every **23 hours** (10:00–19:00 IST) until staff mark **Picked Up**.
+   * **Ready for Pickup** — first WhatsApp when staff mark it, then the same weekday/time every **7 days** for **4 weeks** (28-day hold). After that, reminders stop.
    * If `REPAIR_UPDATE_TEMPLATE_*` is not set yet, status changes still send as ordinary WhatsApp text **while the customer's 24h window is open**. After that, Meta blocks them until those Utility templates are approved.
    * Otherwise they can still *Track My Repair* for free.
 
@@ -283,7 +283,7 @@ After setup, test these flows on WhatsApp:
 |Test|What to send|Expected result|
 |-|-|-|
 |Welcome|"hi"|Language picker (first time), then main menu|
-|Shop|Tap "Shop"|Category list → website link|
+|Corporate Marketplace|Tap "Corporate Marketplace"|Category list → website link|
 |Repair|Tap "Repair My Bag"|Starts repair flow|
 |Photo|Send image after the ticket exists|Uploads to Cloudinary|
 |Track|"TRACK CHA-R-2026-0001"|Shows ticket status|

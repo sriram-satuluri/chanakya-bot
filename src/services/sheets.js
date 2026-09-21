@@ -229,7 +229,7 @@ function safeUserText(value, maxLen = 4000) {
 // Row layout repair_tickets!A:U — keep in sync with the sheet tab header row:
 // A ticket_id · B customer_name · C phone · D bag_type · E problem · F store · G status ·
 // H before_photo · I after_photo · J created_at · K updated_at · L estimated_pickup ·
-// M language · N notes · O last_reassurance_at · P (reserved — ticket counter lives in P1) ·
+// M language · N notes · O last_reassurance_at (Ready-for-Pickup clock) · P (reserved — ticket counter lives in P1) ·
 // Q opted_in · R last_status_sent · S last_update_sent_at · T stop_reason ·
 // U consecutive_failure_count
 //
@@ -438,7 +438,7 @@ function isSheetTrue(v) {
 /**
  * Tickets the status poller should consider:
  *   - any row whose column G status is not what we last WhatsApped
- *   - waiting for pickup (23h repeats until collected)
+ *   - waiting for pickup (weekly repeats until the 28-day hold ends)
  *   - default "awaiting bag" rows with an empty last_status_sent (silent baseline)
  *   - opted-in, not already stopped (24h "still in progress" nudge)
  */
@@ -460,8 +460,8 @@ async function getTicketsForProactiveUpdate() {
     const awaitingBaseline = !lastStatusSent && status === defaultStatus;
     const statusChanged = !alreadyNotified;
 
-    if (waitingPickup && stopReason !== 'delivery_failed') {
-      // Keep chasing collection even after an opt-out.
+    if (waitingPickup && stopReason !== 'delivery_failed' && stopReason !== 'holding_expired') {
+      // Keep chasing collection even after an opt-out, until the 28-day hold.
     } else if (awaitingBaseline) {
       // Record the creation default so the first real G change is the first send.
     } else if (statusChanged && stopReason !== 'delivery_failed') {
@@ -481,6 +481,7 @@ async function getTicketsForProactiveUpdate() {
       language:          String(r[TICKET_COL.LANGUAGE] ?? '').trim().toLowerCase() || 'english',
       lastStatusSent,
       lastUpdateSentAt:  parseISTString(r[TICKET_COL.LAST_UPDATE_SENT_AT]),
+      readyForPickupAt:  parseISTString(r[TICKET_COL.LAST_REASSURANCE_AT]),
       createdAt:         parseISTString(r[TICKET_COL.CREATED_AT]),
       failureCount:      Number(r[TICKET_COL.CONSECUTIVE_FAILURE_COUNT]) || 0,
       optedIn,
@@ -494,7 +495,7 @@ async function getTicketsForProactiveUpdate() {
  * Persist the outcome of a proactive send in one batched write (one API call
  * per ticket rather than five). Only the fields provided are written.
  * @param {number} rowIndex 1-indexed sheet row
- * @param {{statusSent?:string, sentAt?:Date, stopReason?:string, failureCount?:number, optedIn?:boolean}} patch
+ * @param {{statusSent?:string, sentAt?:Date, stopReason?:string, failureCount?:number, optedIn?:boolean, readyForPickupAt?:Date}} patch
  */
 async function recordProactiveUpdate(rowIndex, patch = {}) {
   const data = [];
@@ -506,6 +507,7 @@ async function recordProactiveUpdate(rowIndex, patch = {}) {
   if (patch.optedIn !== undefined) put(TICKET_COL.OPTED_IN, patch.optedIn ? 'TRUE' : 'FALSE');
   if (patch.statusSent !== undefined) put(TICKET_COL.LAST_STATUS_SENT, safeUserText(patch.statusSent, 200));
   if (patch.sentAt !== undefined) put(TICKET_COL.LAST_UPDATE_SENT_AT, formatIST(patch.sentAt));
+  if (patch.readyForPickupAt !== undefined) put(TICKET_COL.LAST_REASSURANCE_AT, formatIST(patch.readyForPickupAt));
   if (patch.stopReason !== undefined) put(TICKET_COL.STOP_REASON, safeUserText(patch.stopReason, 60));
   if (patch.failureCount !== undefined) put(TICKET_COL.CONSECUTIVE_FAILURE_COUNT, String(patch.failureCount));
   if (!data.length) return;

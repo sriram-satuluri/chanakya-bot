@@ -49,7 +49,7 @@ function canonicalStatus(s) {
  * Statuses that END the proactive-update lifecycle for a ticket.
  *   'Picked Up'     → ticket closed; send a closed notice (always), then stop.
  *   'Cannot Repair' → job cancelled; send a closed notice (always), then stop.
- * Ready for Pickup is NOT terminal: we keep reminding until they collect.
+ * Ready for Pickup is NOT terminal: weekly collect reminders for 4 weeks.
  * Maps to the stop_reason recorded on the ticket row.
  */
 const TERMINAL_STOP_REASON = {

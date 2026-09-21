@@ -52,12 +52,12 @@ const SECTION_TITLES = {
 };
 
 // The one place with room for the full name — list headers allow 60 characters
-// where buttons allow 20. Tapping "Marketplace" lands here, so this is what
-// establishes what the feature is actually called.
+// Tapping the menu's "Corporate Marketplace" row lands here. List titles allow
+// 24 characters, so the full name fits; reply-buttons do not.
 const HEADER = {
   english:  '🛍️ Corporate Marketplace',
   hindi:    '🛍️ कॉर्पोरेट मार्केटप्लेस',
-  gujarati: '🛍️ કૉર્પોરેટ માર્કેટપ્લેસ',
+  gujarati: '🛍️ કોર્પોરેટ માર્કેટપ્લેસ',
 };
 
 const BODY = {
