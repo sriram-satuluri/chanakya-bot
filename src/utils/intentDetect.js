@@ -142,7 +142,7 @@ function detectIntent(text, session) {
     ? () => updateSession(session.phone, { fallbackCount: 0 })
     : () => {};
 
-  if (/^bag_\d+$/i.test(text) || /^prob_\d+$/i.test(text)
+  if (/^bag_\d+$/i.test(text) || /^prob_\d+$/i.test(text) || /^prob_multi$/i.test(text)
       || /^combo_other$/i.test(text) || /^combo_\d+_\d+$/i.test(text)) {
     if (flow === 'repair') {
       resetFb();
@@ -169,6 +169,11 @@ function detectIntent(text, session) {
     return '__continue_flow__';
   }
   if (/^btn_(take|skip)_photo$/i.test(text) && flow === 'repair') {
+    resetFb();
+    return '__continue_flow__';
+  }
+  // Adding another repair issue, or finishing the list, is a valid answer.
+  if (/^btn_(add_problem|problems_done)$/i.test(text) && flow === 'repair') {
     resetFb();
     return '__continue_flow__';
   }

@@ -262,7 +262,7 @@ async function createRepairTicket(data) {
     safeUserText(data.customerName),                            // USER INPUT
     safeUserText(data.phone),                                   // USER INPUT (from Meta payload)
     safeUserText(data.bagType, 120),                            // resolver output; still safeUserText for defence-in-depth
-    safeUserText(data.problem, 120),                            // resolver output; still safeUserText
+    safeUserText(data.problem, 400),                            // up to 5 issues, joined; still safeUserText
     safeUserText(data.store, 120),                              // storeName from STORE_NAMES map — safe, but shielded
     DEFAULT_REPAIR_TICKET_STATUS,
     photoCell,                                                  // constructed by beforePhotoSheetCell; not user text

@@ -17,7 +17,9 @@ require('dotenv').config({ path: require('path').join(__dirname, '..', '.env') }
 const { google } = require('googleapis');
 const { parseISTString } = require('../src/utils/istTime');
 
-// In the order the customer meets them.
+// In the order the customer meets them. ask_problem_multi and ask_more_problems
+// sit between ask_problem and ask_store, and only for bags with several issues,
+// so they are left out of this linear funnel.
 const REPAIR_STEPS = ['ask_name', 'ask_bag_type', 'ask_problem', 'ask_store', 'ask_salesperson', 'ask_photo'];
 
 async function main() {

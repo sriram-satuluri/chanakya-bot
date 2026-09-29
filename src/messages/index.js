@@ -222,9 +222,53 @@ const messages = {
   },
 
   ask_problem: {
-    english: `*{{bagType}}* noted. What's the problem with it?`,
-    hindi:   `*{{bagType}}* नोट किया। उसमें क्या समस्या है?`,
-    gujarati:`*{{bagType}}* નોંધ કર્યું. તેમાં શું સમસ્યા છે?`,
+    english: `*{{bagType}}* noted. What's the problem with it?\n\n_More than one thing wrong? Choose *Multiple issues*._`,
+    hindi:   `*{{bagType}}* नोट किया। उसमें क्या समस्या है?\n\n_एक से ज़्यादा समस्या है? *कई समस्याएँ* चुनें।_`,
+    gujarati:`*{{bagType}}* નોંધ કર્યું. તેમાં શું સમસ્યા છે?\n\n_એકથી વધુ સમસ્યા હોય? *ઘણી સમસ્યા* પસંદ કરો._`,
+  },
+
+  // Multi-issue path. WhatsApp lists are single-select, so each extra problem
+  // is its own tap, capped at 5. A customer with one issue never sees these.
+  ask_problem_multi: {
+    english: `We'll note each issue *one at a time* — up to *5*.\n\nPick the *first* one.`,
+    hindi:   `हर समस्या *एक-एक करके* नोट करेंगे — ज़्यादा से ज़्यादा *5*।\n\n*पहली* समस्या चुनें।`,
+    gujarati:`દરેક સમસ્યા *એક પછી એક* નોંધીશું — વધુમાં વધુ *5*.\n\n*પહેલી* સમસ્યા પસંદ કરો.`,
+  },
+
+  ask_problem_add: {
+    english: `So far ({{count}} of 5):\n{{picked}}\n\nPick the *next* issue.`,
+    hindi:   `अभी तक ({{count}} / 5):\n{{picked}}\n\n*अगली* समस्या चुनें।`,
+    gujarati:`હજી સુધી ({{count}} / 5):\n{{picked}}\n\n*આગળની* સમસ્યા પસંદ કરો.`,
+  },
+
+  ask_more_problems: {
+    english: `So far ({{count}} of 5):\n{{picked}}\n\nAdd another issue, or tap *That's all* if this is everything.`,
+    hindi:   `अभी तक ({{count}} / 5):\n{{picked}}\n\nऔर समस्या जोड़ें, या सब हो गया हो तो *बस इतना* दबाएं।`,
+    gujarati:`હજી સુધી ({{count}} / 5):\n{{picked}}\n\nબીજી સમસ્યા ઉમેરો, અથવા બધું થઈ ગયું હોય તો *બસ આટલું* દબાવો.`,
+  },
+
+  problem_already_noted: {
+    english: `That issue is already on the list. Pick a *different* one.\n\nSo far ({{count}} of 5):\n{{picked}}`,
+    hindi:   `यह समस्या पहले से नोट है। कोई *दूसरी* चुनें।\n\nअभी तक ({{count}} / 5):\n{{picked}}`,
+    gujarati:`આ સમસ્યા પહેલેથી નોંધાયેલી છે. *બીજી* પસંદ કરો.\n\nહજી સુધી ({{count}} / 5):\n{{picked}}`,
+  },
+
+  problems_noted: {
+    english: `We'll book these *{{count}}* issues:\n{{picked}}`,
+    hindi:   `ये *{{count}}* समस्याएँ नोट कर लीं:\n{{picked}}`,
+    gujarati:`આ *{{count}}* સમસ્યા નોંધી:\n{{picked}}`,
+  },
+
+  list_row_multi_problem: {
+    english: `Multiple issues`,
+    hindi:   `कई समस्याएँ`,
+    gujarati:`ઘણી સમસ્યા`,
+  },
+
+  list_row_multi_problem_hint: {
+    english: `Add each issue, up to 5`,
+    hindi:   `हर समस्या जोड़ें, ज़्यादा से ज़्यादा 5`,
+    gujarati:`દરેક સમસ્યા ઉમેરો, વધુમાં વધુ 5`,
   },
 
   // Photo is asked after the staff-name question and before the ticket is

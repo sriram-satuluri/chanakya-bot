@@ -84,6 +84,11 @@ const PROBLEMS = {
   gujarati: ['ઝિપ / ચેઈનની સમસ્યા', 'વ્હીલની સમસ્યા', 'હૅન્ડલની સમસ્યા', 'લૉકની સમસ્યા', 'સિલાઈ / ફાટ', 'સફાઈ / પૉલિશ', 'લાઇનિંગ', 'અન્ય'],
 };
 
+// WhatsApp lists are single-select, so several issues are collected one tap at
+// a time. Five is the cap: enough for a bag that arrives with a handful of
+// faults, short enough that the ticket cell and the confirmation stay readable.
+const MAX_PROBLEMS = 5;
+
 // WhatsApp caps interactive-button titles at 20 characters (API limit), so the
 // labels must be complete words that FIT — never let long text get chopped
 // mid-word ("Alkapuri — Race Cour"). Store names alone are unambiguous; the
@@ -187,15 +192,45 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
       return sendProblemMenu(phone, lang, bagType);
     }
 
-    // ── Fallback: problem ("Something else" after bag type) ───
+    // ── Step 3: one problem, or the "several issues" collector ──
     case 'ask_problem': {
+      if (isMultiProblemChoice(text)) {
+        updateSession(phone, {
+          flowStep: 'ask_problem_multi',
+          collectedData: { ...data, problems: [], problemIdxs: [] },
+        });
+        return sendProblemMenu(phone, lang, data.bagType, { mode: 'multi' });
+      }
       const problem = resolveProblem(text, lang);
       if (!problem) return sendProblemMenu(phone, lang, data.bagType);
       // Store comes BEFORE the photo now: those four answers are everything we
       // need to create the ticket, so we bank them rather than holding them
       // hostage to an optional photo the customer may not be able to take yet.
-      updateSession(phone, { flowStep: 'ask_store', collectedData: { ...data, problem } });
+      updateSession(phone, {
+        flowStep: 'ask_store',
+        collectedData: { ...data, problem, problems: [problem] },
+      });
       return sendStoreMenu(phone, lang);
+    }
+
+    // One row of the multi-issue list.
+    case 'ask_problem_multi':
+      return handleMultiProblemPick(phone, text, data, lang);
+
+    // "Add another" or "That's all" after at least one issue is on the list.
+    case 'ask_more_problems': {
+      if (isProblemsDone(text)) return finishProblems(phone, data, lang);
+      if (isAddProblem(text)) {
+        updateSession(phone, { flowStep: 'ask_problem_multi' });
+        return sendProblemMenu(phone, lang, data.bagType, {
+          mode: 'multi',
+          excludeIdxs: data.problemIdxs || [],
+          picked: data.problems || [],
+        });
+      }
+      // A problem row can still arrive if the previous list is on screen.
+      if (resolveProblemIndex(text) != null) return handleMultiProblemPick(phone, text, data, lang);
+      return sendMoreProblemsPrompt(phone, lang, data.problems || []);
     }
 
     // ── Step 4: Store selection → ask who is helping them ────
@@ -416,9 +451,65 @@ async function sendBagTypeMenu(phone, lang, name, returning = false) {
   );
 }
 
-async function sendProblemMenu(phone, lang, bagType) {
-  const prompt = M.fill(M.get('ask_problem', lang), { bagType });
+const MORE_PROBLEM_BUTTONS = {
+  english: [
+    { id: 'btn_add_problem', title: '➕ Add another' },
+    { id: 'btn_problems_done', title: "✅ That's all" },
+  ],
+  hindi: [
+    { id: 'btn_add_problem', title: '➕ और जोड़ें' },
+    { id: 'btn_problems_done', title: '✅ बस इतना' },
+  ],
+  gujarati: [
+    { id: 'btn_add_problem', title: '➕ વધુ ઉમેરો' },
+    { id: 'btn_problems_done', title: '✅ બસ આટલું' },
+  ],
+};
+
+function formatPicked(labels) {
+  return labels.map((p, i) => `${i + 1}. ${p}`).join('\n');
+}
+
+function joinProblems(labels) {
+  return labels.join(' · ');
+}
+
+function pickedVars(labels) {
+  return { picked: formatPicked(labels), count: String(labels.length) };
+}
+
+/**
+ * @param {{ mode?: 'single'|'multi', excludeIdxs?: number[], picked?: string[], duplicate?: boolean }} [opts]
+ */
+async function sendProblemMenu(phone, lang, bagType, opts = {}) {
+  const mode = opts.mode || 'single';
+  const exclude = new Set(opts.excludeIdxs || []);
+  const picked = opts.picked || [];
+  let prompt;
+  if (mode === 'multi' && opts.duplicate) {
+    prompt = M.fill(M.get('problem_already_noted', lang), pickedVars(picked));
+  } else if (mode === 'multi' && picked.length) {
+    prompt = M.fill(M.get('ask_problem_add', lang), pickedVars(picked));
+  } else if (mode === 'multi') {
+    prompt = M.get('ask_problem_multi', lang);
+  } else {
+    prompt = M.fill(M.get('ask_problem', lang), { bagType });
+  }
+
   const probs = PROBLEMS[lang] || PROBLEMS.english;
+  const rows = probs
+    .map((p, i) => ({ id: `prob_${i}`, title: p.substring(0, 24) }))
+    .filter((_, i) => !exclude.has(i));
+
+  // The extra row only belongs on the first problem question. Once they have
+  // chosen "several issues", every later list is just the remaining faults.
+  if (mode === 'single') {
+    rows.push({
+      id: 'prob_multi',
+      title: M.get('list_row_multi_problem', lang).substring(0, 24),
+      description: M.get('list_row_multi_problem_hint', lang).substring(0, 72),
+    });
+  }
 
   return sendListMessage(
     phone,
@@ -427,9 +518,89 @@ async function sendProblemMenu(phone, lang, bagType) {
     M.get('btn_select_short', lang),
     [{
       title: M.get('list_section_problem', lang),
-      rows: probs.map((p, i) => ({ id: `prob_${i}`, title: p.substring(0, 24) })),
+      rows,
     }]
   );
+}
+
+async function sendMoreProblemsPrompt(phone, lang, picked) {
+  const buttons = (MORE_PROBLEM_BUTTONS[lang] || MORE_PROBLEM_BUTTONS.english)
+    .map((b) => ({ id: b.id, title: b.title.substring(0, 20) }));
+  return sendButtonMessage(
+    phone,
+    M.fill(M.get('ask_more_problems', lang), pickedVars(picked)),
+    buttons,
+  );
+}
+
+function isMultiProblemChoice(text) {
+  if (String(text || '').trim().toLowerCase() === 'prob_multi') return true;
+  const nt = normalizeInteractiveLabel(text);
+  if (!nt) return false;
+  return ['english', 'hindi', 'gujarati'].some((L) =>
+    rowLabelsMatch(M.get('list_row_multi_problem', L), nt));
+}
+
+function buttonTitleMatches(text, which) {
+  const nt = normalizeInteractiveLabel(text);
+  if (!nt) return false;
+  return ['english', 'hindi', 'gujarati'].some((L) =>
+    normalizeInteractiveLabel(MORE_PROBLEM_BUTTONS[L][which].title) === nt);
+}
+
+function isAddProblem(text) {
+  if (String(text || '').trim().toLowerCase() === 'btn_add_problem') return true;
+  return buttonTitleMatches(text, 0);
+}
+
+function isProblemsDone(text) {
+  if (String(text || '').trim().toLowerCase() === 'btn_problems_done') return true;
+  return buttonTitleMatches(text, 1);
+}
+
+async function handleMultiProblemPick(phone, text, data, lang) {
+  const idx = resolveProblemIndex(text);
+  const idxs = Array.isArray(data.problemIdxs) ? data.problemIdxs.slice() : [];
+  const labels = Array.isArray(data.problems) ? data.problems.filter(Boolean) : [];
+
+  if (idx == null || idxs.includes(idx)) {
+    return sendProblemMenu(phone, lang, data.bagType, {
+      mode: 'multi',
+      excludeIdxs: idxs,
+      picked: labels,
+      duplicate: idx != null && idxs.includes(idx),
+    });
+  }
+
+  const label = problemLabel(idx, lang);
+  idxs.push(idx);
+  labels.push(label);
+  const next = { ...data, problemIdxs: idxs, problems: labels, problem: joinProblems(labels) };
+
+  if (labels.length >= MAX_PROBLEMS) {
+    updateSession(phone, { flowStep: 'ask_store', collectedData: next });
+    return sendStoreMenu(phone, lang, M.fill(M.get('problems_noted', lang), pickedVars(labels)));
+  }
+
+  updateSession(phone, { flowStep: 'ask_more_problems', collectedData: next });
+  return sendMoreProblemsPrompt(phone, lang, labels);
+}
+
+async function finishProblems(phone, data, lang) {
+  const labels = Array.isArray(data.problems) ? data.problems.filter(Boolean) : [];
+  if (!labels.length) {
+    updateSession(phone, {
+      flowStep: 'ask_problem_multi',
+      collectedData: { ...data, problems: [], problemIdxs: [] },
+    });
+    return sendProblemMenu(phone, lang, data.bagType, { mode: 'multi' });
+  }
+  const next = { ...data, problems: labels, problem: joinProblems(labels) };
+  updateSession(phone, { flowStep: 'ask_store', collectedData: next });
+  const lead = labels.length > 1
+    ? M.fill(M.get('problems_noted', lang), pickedVars(labels))
+    : '';
+  return sendStoreMenu(phone, lang, lead);
 }
 
 /**
@@ -472,14 +643,15 @@ async function sendPhotoPrompt(phone, lang, awaitingCapture = false) {
   return sendButtonMessage(phone, M.get(key, lang), buttons);
 }
 
-async function sendStoreMenu(phone, lang) {
+async function sendStoreMenu(phone, lang, leadIn = '') {
   const stores = STORES[lang] || STORES.english;
   const prompt = {
     english:  `Almost done! Which store will you bring the bag to?\n\n📍 *Alkapuri* — Race Course Road\n📍 *Sursagar* — Opp. Pratap Talkies`,
     hindi:    `लगभग हो गया! आप बैग किस स्टोर पर लाएंगे?\n\n📍 *Alkapuri* — Race Course Road\n📍 *Sursagar* — Pratap Talkies के सामने`,
     gujarati: `લગભગ થઈ ગયું! આપ બેગ કયા સ્ટોર પર લઈ આવશો?\n\n📍 *Alkapuri* — Race Course Road\n📍 *Sursagar* — Pratap Talkies સામે`,
   }[lang] || `Almost done! Which store will you bring the bag to?`;
-  return sendButtonMessage(phone, prompt, stores.map(s => ({ id: s.id, title: s.label.substring(0, 20) })));
+  const body = leadIn ? `${leadIn}\n\n${prompt}` : prompt;
+  return sendButtonMessage(phone, body, stores.map(s => ({ id: s.id, title: s.label.substring(0, 20) })));
 }
 
 // ── Resolvers (map button IDs back to human-readable values) ──
@@ -510,11 +682,16 @@ function resolveBagType(text, lang) {
   return null;
 }
 
-function resolveProblem(text, lang) {
-  const m = text?.match(/^prob_(\d+)$/);
+function problemLabel(idx, lang) {
+  return PROBLEMS[lang]?.[idx] ?? PROBLEMS.english[idx] ?? null;
+}
+
+/** Index into PROBLEMS, or null. Language-independent: ids and all three labels match. */
+function resolveProblemIndex(text) {
+  const m = String(text || '').match(/^prob_(\d+)$/i);
   if (m) {
     const idx = parseInt(m[1], 10);
-    return PROBLEMS[lang]?.[idx] ?? PROBLEMS.english[idx] ?? null;
+    return PROBLEMS.english[idx] != null ? idx : null;
   }
 
   const nt = normalizeInteractiveLabel(text);
@@ -524,11 +701,15 @@ function resolveProblem(text, lang) {
   const n = Math.min(...langs.map((L) => PROBLEMS[L].length));
   for (let i = 0; i < n; i++) {
     const cells = langs.map((L) => PROBLEMS[L][i]);
-    if (cells.some((c) => rowLabelsMatch(c, nt))) {
-      return PROBLEMS[lang]?.[i] ?? PROBLEMS.english[i];
-    }
+    if (cells.some((c) => rowLabelsMatch(c, nt))) return i;
   }
   return null;
+}
+
+function resolveProblem(text, lang) {
+  const idx = resolveProblemIndex(text);
+  if (idx == null) return null;
+  return problemLabel(idx, lang);
 }
 
 function resolveStore(text) {

@@ -370,6 +370,149 @@ test('picking a problem continues to the store picker', async () => {
   assert.strictEqual(s.collectedData.problem, 'Zip / Chain Issue');
 });
 
+test('a bag with several issues can book up to five, one at a time', async () => {
+  const wp = require.resolve('../src/services/whatsapp');
+  require(wp);
+  const sent = [];
+  require.cache[wp].exports.sendTextMessage = async () => ({});
+  require.cache[wp].exports.sendListMessage = async (to, h, body, btn, sections) => {
+    sent.push({ kind: 'list', body, sections }); return {};
+  };
+  require.cache[wp].exports.sendButtonMessage = async (to, body, buttons) => {
+    sent.push({ kind: 'button', body, buttons }); return {};
+  };
+
+  delete require.cache[require.resolve('../src/flows/repair')];
+  const { handleRepairFlow } = require('../src/flows/repair');
+  const { getSession } = require('../src/utils/sessionStore');
+
+  const phone = '919888000010';
+  const base = {
+    language: 'english',
+    currentFlow: 'repair',
+    collectedData: { name: 'Ravi', bagType: 'Trolley / Luggage Bag' },
+  };
+  // updateSession only writes the fields it is given, so a stored session does
+  // not keep currentFlow. Rebuild the object the flow actually receives.
+  const snap = () => {
+    const s = getSession(phone);
+    return {
+      language: 'english',
+      currentFlow: 'repair',
+      flowStep: s.flowStep,
+      collectedData: s.collectedData,
+    };
+  };
+
+  sent.length = 0;
+  await handleRepairFlow(phone, 'bag_0', 'text', {}, { ...base, flowStep: 'ask_bag_type' });
+  const firstList = sent.find((m) => m.kind === 'list');
+  const rows = firstList.sections[0].rows;
+  assert.ok(rows.some((r) => r.id === 'prob_multi'), 'problem list offers Multiple issues');
+  assert.ok(rows.length <= 10, 'WhatsApp allows at most 10 list rows');
+  for (const r of rows) {
+    assert.ok(r.title.length <= 24, `row title too long: ${r.title}`);
+    if (r.description) assert.ok(r.description.length <= 72, 'row description too long');
+  }
+
+  sent.length = 0;
+  await handleRepairFlow(phone, 'prob_multi', 'text', {}, snap());
+  assert.strictEqual(getSession(phone).flowStep, 'ask_problem_multi');
+  const multiRows = sent.find((m) => m.kind === 'list').sections[0].rows;
+  assert.ok(!multiRows.some((r) => r.id === 'prob_multi'), 'multi list is only the issues');
+  assert.match(sent.find((m) => m.kind === 'list').body, /up to \*5\*/);
+
+  await handleRepairFlow(phone, 'prob_0', 'text', {}, snap());
+  assert.strictEqual(getSession(phone).flowStep, 'ask_more_problems');
+  const more = sent.find((m) => m.kind === 'button');
+  assert.deepStrictEqual(more.buttons.map((b) => b.id), ['btn_add_problem', 'btn_problems_done']);
+  for (const b of more.buttons) assert.ok(b.title.length <= 20, `button title too long: ${b.title}`);
+
+  await handleRepairFlow(phone, 'btn_add_problem', 'text', {}, snap());
+  await handleRepairFlow(phone, 'prob_1', 'text', {}, snap());
+  await handleRepairFlow(phone, 'btn_problems_done', 'text', {}, snap());
+
+  const booked = getSession(phone);
+  assert.strictEqual(booked.flowStep, 'ask_store');
+  assert.strictEqual(
+    booked.collectedData.problem,
+    'Zip / Chain Issue · Wheel Issue',
+  );
+  assert.ok(
+    sent.some((m) => m.kind === 'button' && /Almost done/i.test(m.body) && /Wheel Issue/.test(m.body)),
+    'store question should recap every issue',
+  );
+});
+
+test('the fifth issue continues straight to the store', async () => {
+  const wp = require.resolve('../src/services/whatsapp');
+  require(wp);
+  const sent = [];
+  require.cache[wp].exports.sendTextMessage = async () => ({});
+  require.cache[wp].exports.sendListMessage = async (to, h, body) => {
+    sent.push({ kind: 'list', body }); return {};
+  };
+  require.cache[wp].exports.sendButtonMessage = async (to, body) => {
+    sent.push({ kind: 'button', body }); return {};
+  };
+
+  delete require.cache[require.resolve('../src/flows/repair')];
+  const { handleRepairFlow } = require('../src/flows/repair');
+  const { getSession } = require('../src/utils/sessionStore');
+
+  const phone = '919888000011';
+  await handleRepairFlow(phone, 'prob_4', 'text', {}, {
+    language: 'english',
+    currentFlow: 'repair',
+    flowStep: 'ask_problem_multi',
+    collectedData: {
+      name: 'Ravi',
+      bagType: 'Backpack',
+      problemIdxs: [0, 1, 2, 3],
+      problems: ['Zip / Chain Issue', 'Wheel Issue', 'Handle Issue', 'Lock Issue'],
+      problem: 'Zip / Chain Issue · Wheel Issue · Handle Issue · Lock Issue',
+    },
+  });
+
+  const s = getSession(phone);
+  assert.strictEqual(s.flowStep, 'ask_store');
+  assert.strictEqual(s.collectedData.problems.length, 5);
+  assert.ok(s.collectedData.problem.length <= 400, 'joined issues must fit the sheet cell');
+  assert.ok(sent.some((m) => m.kind === 'button' && /Almost done/i.test(m.body)));
+  assert.ok(!sent.some((m) => m.kind === 'button' && /That's all/i.test(m.body)));
+});
+
+test('an issue already chosen is not added twice', async () => {
+  const wp = require.resolve('../src/services/whatsapp');
+  require(wp);
+  require.cache[wp].exports.sendTextMessage = async () => ({});
+  require.cache[wp].exports.sendListMessage = async () => ({});
+  require.cache[wp].exports.sendButtonMessage = async () => ({});
+
+  delete require.cache[require.resolve('../src/flows/repair')];
+  const { handleRepairFlow } = require('../src/flows/repair');
+  const { getSession, updateSession } = require('../src/utils/sessionStore');
+
+  const phone = '919888000012';
+  const session = {
+    language: 'hindi',
+    currentFlow: 'repair',
+    flowStep: 'ask_problem_multi',
+    collectedData: {
+      name: 'Ravi',
+      bagType: 'बैकपैक',
+      problemIdxs: [0],
+      problems: ['ज़िप / चेन की समस्या'],
+    },
+  };
+  updateSession(phone, session);
+  await handleRepairFlow(phone, 'prob_0', 'text', {}, getSession(phone));
+
+  const s = getSession(phone);
+  assert.strictEqual(s.flowStep, 'ask_problem_multi');
+  assert.deepStrictEqual(s.collectedData.problems, ['ज़िप / चेन की समस्या']);
+});
+
 test('throttles survive a process restart', () => {
   const p = require.resolve('../src/utils/throttleStore');
   delete require.cache[p];
