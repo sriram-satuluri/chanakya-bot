@@ -58,6 +58,36 @@ async function sendButtonMessage(to, bodyText, buttons) {
   });
 }
 
+/**
+ * Open a published WhatsApp Flow. Used for the repair-issue checkboxes —
+ * lists and buttons cannot multi-select.
+ *
+ * @param {string} to
+ * @param {{ body: string, cta: string, flowId: string, screen: string, token: string, data: object }} opts
+ */
+async function sendFlowMessage(to, { body, cta, flowId, screen, token, data }) {
+  return call({
+    messaging_product: 'whatsapp',
+    to,
+    type: 'interactive',
+    interactive: {
+      type: 'flow',
+      body: { text: String(body).slice(0, 1024) },
+      action: {
+        name: 'flow',
+        parameters: {
+          flow_message_version: '3',
+          flow_token: token,
+          flow_id: String(flowId),
+          flow_cta: String(cta).slice(0, 20),
+          flow_action: 'navigate',
+          flow_action_payload: { screen, data },
+        },
+      },
+    },
+  });
+}
+
 // ── Interactive list (up to 10 items per section) ─────────────
 async function sendListMessage(to, headerText, bodyText, buttonLabel, sections) {
   // sections: [{ title: 'Section Name', rows: [{ id, title, description? }] }]
@@ -340,7 +370,7 @@ async function verifyMetaWhatsAppCredentials() {
 }
 
 module.exports = {
-  sendTextMessage, sendButtonMessage, sendListMessage,
+  sendTextMessage, sendButtonMessage, sendListMessage, sendFlowMessage,
   sendLocationMessage, sendImageMessage, sendDocumentMessage, sendTemplateMessage,
   markAsRead, downloadMedia,
   verifyMetaWhatsAppCredentials,

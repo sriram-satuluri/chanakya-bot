@@ -489,6 +489,52 @@ test('a second issue tapped on the old one-at-a-time step still books both', asy
   assert.strictEqual(s.collectedData.problem, 'हैंडल की समस्या · व्हील की समस्या');
 });
 
+test('ticked issues from the checkbox screen book together', async () => {
+  const wp = require.resolve('../src/services/whatsapp');
+  require(wp);
+  const flows = [];
+  require.cache[wp].exports.sendTextMessage = async () => ({});
+  require.cache[wp].exports.sendListMessage = async () => ({});
+  require.cache[wp].exports.sendButtonMessage = async () => ({});
+  require.cache[wp].exports.sendFlowMessage = async (to, opts) => {
+    flows.push(opts);
+    return {};
+  };
+
+  delete require.cache[require.resolve('../src/flows/repair')];
+  const { handleRepairFlow } = require('../src/flows/repair');
+  const { getSession } = require('../src/utils/sessionStore');
+
+  const phone = '919888000015';
+  const session = {
+    language: 'english',
+    currentFlow: 'repair',
+    flowStep: 'ask_problem',
+    collectedData: { name: 'Ravi', bagType: 'School Bag' },
+  };
+
+  process.env.REPAIR_ISSUES_FLOW_ID = '999';
+  try {
+    await handleRepairFlow(phone, 'hello', 'text', {}, session);
+    assert.strictEqual(flows.length, 1);
+    assert.strictEqual(flows[0].flowId, '999');
+    assert.strictEqual(flows[0].data.issues.length, 8);
+    assert.ok(flows[0].cta.length <= 20);
+    assert.match(flows[0].body, /School Bag/);
+
+    await handleRepairFlow(phone, 'issues:2,0', 'text', {}, {
+      ...session,
+      collectedData: { ...session.collectedData },
+    });
+  } finally {
+    delete process.env.REPAIR_ISSUES_FLOW_ID;
+  }
+
+  const s = getSession(phone);
+  assert.strictEqual(s.flowStep, 'ask_store');
+  assert.strictEqual(s.collectedData.problem, 'Handle Issue · Zip / Chain Issue');
+});
+
 test('throttles survive a process restart', () => {
   const p = require.resolve('../src/utils/throttleStore');
   delete require.cache[p];

@@ -10,6 +10,7 @@
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
     "verify:meta": "node scripts/verify-meta-token.js",
+    "flow:issues": "node scripts/publish-issue-flow.js",
     "verify:sheet": "node verify_sheet.js",
     "sheet:status-dropdown": "node scripts/apply-repair-status-dropdown.js",
     "sheet:protect": "node scripts/apply-repair-sheet-protection.js",

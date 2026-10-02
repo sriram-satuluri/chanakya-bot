@@ -4,6 +4,7 @@ const { detectLanguage } = require('../utils/languageDetect');
 const { detectIntent } = require('../utils/intentDetect');
 const { logAnalytics, setCustomerLanguage, hasOpenOptedInTicket } = require('../services/sheets');
 const { markAsRead } = require('../services/whatsapp');
+const { selectionTextFromResponse } = require('../flows/issueChecklist');
 const { claimMessage } = require('../utils/dedupStore');
 const { getRecord, setRecord } = require('../utils/throttleStore');
 const { envInt } = require('../utils/env');
@@ -137,11 +138,17 @@ async function processMessage(message, contact) {
   if (msgType === 'text') {
     text = message.text?.body?.trim() || '';
   } else if (msgType === 'interactive') {
-    // Prefer stable row/button ids; some clients omit id — fall back to list title text.
-    const lr = message.interactive?.list_reply;
-    text = message.interactive?.button_reply?.id ||
-           lr?.id ||
-           (lr?.title?.trim() || '');
+    const nfm = message.interactive?.nfm_reply;
+    if (nfm?.response_json) {
+      // Checkbox Flow completion. "issues:0,2" is the repair step's answer.
+      text = selectionTextFromResponse(nfm.response_json);
+    } else {
+      // Prefer stable row/button ids; some clients omit id — fall back to list title text.
+      const lr = message.interactive?.list_reply;
+      text = message.interactive?.button_reply?.id ||
+             lr?.id ||
+             (lr?.title?.trim() || '');
+    }
   } else if (msgType === 'button') {
     // Legacy quick-reply / button payload (some clients still send this)
     text = (message.button?.payload || message.button?.text || '').trim();

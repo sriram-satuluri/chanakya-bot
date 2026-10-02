@@ -229,6 +229,37 @@ const messages = {
     gujarati:`*{{bagType}}* નોંધ કર્યું. તેમાં શું સમસ્યા છે?\n\nએક સમસ્યા પસંદ કરો, અથવા થોડા નંબર મોકલો (વધુમાં વધુ 5).\nજેમ કે *1, 3*\n\n{{choices}}`,
   },
 
+  // Shown above the checkbox button. The ticks themselves live in the Flow.
+  ask_problem_checks: {
+    english: `*{{bagType}}* noted.\n\nTick every issue that applies, up to 5.`,
+    hindi:   `*{{bagType}}* नोट किया।\n\nजो समस्याएँ हों उन्हें चुनें, ज़्यादा से ज़्यादा 5।`,
+    gujarati:`*{{bagType}}* નોંધ કર્યું.\n\nજે સમસ્યા હોય તે પસંદ કરો, વધુમાં વધુ 5.`,
+  },
+
+  issue_check_label: {
+    english: `What's wrong?`,
+    hindi:   `क्या समस्या है?`,
+    gujarati:`શું સમસ્યા છે?`,
+  },
+
+  issue_check_hint: {
+    english: `Tick up to 5`,
+    hindi:   `ज़्यादा से ज़्यादा 5 चुनें`,
+    gujarati:`વધુમાં વધુ 5 પસંદ કરો`,
+  },
+
+  issue_check_continue: {
+    english: `Continue`,
+    hindi:   `आगे बढ़ें`,
+    gujarati:`આગળ વધો`,
+  },
+
+  issue_check_cta: {
+    english: `Select issues`,
+    hindi:   `समस्या चुनें`,
+    gujarati:`સમસ્યા પસંદ`,
+  },
+
   problem_too_many: {
     english: `Up to *5* issues. Send the numbers again, like *1, 3*.`,
     hindi:   `ज़्यादा से ज़्यादा *5* समस्याएँ। नंबर फिर भेजें, जैसे *1, 3*।`,

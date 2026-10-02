@@ -210,8 +210,12 @@ function detectIntent(text, session) {
       return '__continue_flow__';
     }
   }
-  // "1, 3" (or Devanagari / Gujarati digits) is a repair answer: several issues
-  // in one reply. It must not count as a failure to understand the bot.
+  // Checkbox Flow completion ("issues:0,2") and a typed "1, 3" are repair
+  // answers. Neither may count as a failure to understand the bot.
+  if (flow === 'repair' && /^issues:\d+(?:,\d+)*$/i.test(String(text || '').trim())) {
+    resetFb();
+    return '__continue_flow__';
+  }
   if (flow === 'repair' && isProblemNumberReply(text)) {
     resetFb();
     return '__continue_flow__';

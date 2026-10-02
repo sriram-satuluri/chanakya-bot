@@ -1,4 +1,4 @@
-const { sendTextMessage, sendButtonMessage, sendListMessage } = require('../services/whatsapp');
+const { sendTextMessage, sendButtonMessage, sendListMessage, sendFlowMessage } = require('../services/whatsapp');
 const { createRepairTicket, getCustomerName, setCustomerName } = require('../services/sheets');
 const { getTimestamp, setTimestamp } = require('../utils/throttleStore');
 const { generateTicketId } = require('../utils/ticketId');
@@ -17,6 +17,13 @@ const { handleEscalation } = require('./escalate');
 const { askRepairUpdatesOptIn } = require('./repairUpdates');
 const { detectIntent } = require('../utils/intentDetect');
 const { envInt } = require('../utils/env');
+const {
+  FLOW_TOKEN,
+  SCREEN_ID,
+  checklistData,
+  checklistCta,
+  parseIssueReply,
+} = require('./issueChecklist');
 const M = require('../messages/index');
 
 /** Redact a phone to last-4 for logs. Module scope so it's also in scope in
@@ -478,6 +485,13 @@ function parseProblemNumberList(text) {
 }
 
 async function sendProblemMenu(phone, lang, bagType, notice = '') {
+  // Checkboxes when the Flow is published. A notice (bad typed numbers) and a
+  // failed Flow send both fall through to the single-select list.
+  if (!notice) {
+    const opened = await trySendIssueChecklist(phone, lang, bagType);
+    if (opened) return opened;
+  }
+
   const prompt = M.fill(M.get('ask_problem', lang), {
     bagType: bagType || '',
     choices: problemChoices(lang),
@@ -495,6 +509,25 @@ async function sendProblemMenu(phone, lang, bagType, notice = '') {
       rows: probs.map((p, i) => ({ id: `prob_${i}`, title: p.substring(0, 24) })),
     }]
   );
+}
+
+async function trySendIssueChecklist(phone, lang, bagType) {
+  const flowId = String(process.env.REPAIR_ISSUES_FLOW_ID || '').trim();
+  if (!flowId) return null;
+  const probs = PROBLEMS[lang] || PROBLEMS.english;
+  try {
+    return await sendFlowMessage(phone, {
+      body: M.fill(M.get('ask_problem_checks', lang), { bagType: bagType || '' }),
+      cta: checklistCta(lang),
+      flowId,
+      screen: SCREEN_ID,
+      token: FLOW_TOKEN,
+      data: checklistData(lang, probs),
+    });
+  } catch (e) {
+    console.error(`[REPAIR] Issue checkboxes failed for ${_rp(phone)}, using the list:`, e.message);
+    return null;
+  }
 }
 
 function goToStoreWithProblems(phone, data, lang, labels) {
@@ -524,6 +557,16 @@ async function answerProblem(phone, text, data, lang, step) {
   }
   if (t === 'btn_add_problem' || t === 'prob_multi') {
     return sendProblemMenu(phone, lang, data.bagType);
+  }
+
+  const checked = parseIssueReply(text);
+  if (checked) {
+    const inRange = checked.idxs.filter((i) => problemLabel(i, lang));
+    if (!inRange.length || inRange.length > MAX_PROBLEMS) {
+      return sendProblemMenu(phone, lang, data.bagType, M.get('problem_too_many', lang));
+    }
+    const labels = inRange.map((i) => problemLabel(i, lang));
+    return goToStoreWithProblems(phone, data, lang, labels);
   }
 
   const numbered = parseProblemNumberList(text);

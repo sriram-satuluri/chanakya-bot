@@ -191,6 +191,24 @@ test('list row ids stay in the repair flow (bag, problem)', () => {
   assert.strictEqual(detectIntent('prob_1', s), '__continue_flow__');
   assert.strictEqual(detectIntent('1, 3', s), '__continue_flow__');
   assert.strictEqual(detectIntent('१, ३', s), '__continue_flow__');
+  assert.strictEqual(detectIntent('issues:0,2', s), '__continue_flow__');
+});
+
+test('checkbox labels fit the WhatsApp Flow limits', () => {
+  const { checklistCta, checklistData, selectionTextFromResponse } = require('../src/flows/issueChecklist');
+  for (const lang of ['english', 'hindi', 'gujarati']) {
+    assert.ok(checklistCta(lang).length > 0 && checklistCta(lang).length <= 20, lang);
+    const data = checklistData(lang, ['Zip / Chain Issue', 'Wheel Issue']);
+    assert.ok(data.label.length <= 30, data.label);
+    assert.ok(data.continue_label.length <= 30, data.continue_label);
+    assert.ok(data.hint.length <= 80, data.hint);
+    assert.deepStrictEqual(data.issues.map((i) => i.id), ['0', '1']);
+  }
+  assert.strictEqual(
+    selectionTextFromResponse('{"selected":["0","2","0"]}'),
+    'issues:0,2',
+  );
+  assert.strictEqual(selectionTextFromResponse('not json'), '');
 });
 
 test('"hi" inside stitching does not dump a booking into the main menu', () => {
