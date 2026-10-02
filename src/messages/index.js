@@ -566,6 +566,14 @@ const messages = {
   },
 
   // ── Broadcast opt-out / opt-in (STOP / RESUME keywords) ──
+  /** Shown when a STOP / resume / repair-update preference did not persist.
+   *  Must not claim the change went through — these are consent actions. */
+  preference_save_failed: {
+    english: `Sorry, we could not save that preference just now. Please send it again in a few minutes.`,
+    hindi:   `माफ़ कीजिए, यह पसंद अभी सेव नहीं हो पाई। कुछ मिनट बाद फिर से भेजें।`,
+    gujarati:`માફ કરશો, આ પસંદગી હમણાં સેવ થઈ નથી. થોડી મિનિટ પછી ફરી મોકલો.`,
+  },
+
   opt_out_confirmed: {
     english: `✅ Done — you won't receive promotional messages from us anymore.\n\nYou can still use this bot for repairs, tracking, and store info anytime. To get offers again, just type *RESUME*.`,
     hindi:   `✅ हो गया — अब आपको हमारे promotional message नहीं आएंगे।\n\nरिपेयर, ट्रैकिंग और स्टोर जानकारी के लिए bot का उपयोग जारी रख सकते हैं। Offers फिर से चाहिए तो *RESUME* टाइप करें।`,
@@ -713,7 +721,12 @@ function get(key, lang) {
 }
 
 function fill(template, vars) {
-  return template.replace(/\{\{(\w+)\}\}/g, (_, k) => vars[k] || '');
+  // Nullish only. `||` turned a real 0 (and the string "0") into a blank,
+  // so a placeholder could silently disappear from a message the customer sees.
+  return template.replace(/\{\{(\w+)\}\}/g, (_, k) => {
+    const v = vars[k];
+    return v == null ? '' : String(v);
+  });
 }
 
 /* ── T&Cs URL helpers ─────────────────────────────────────────────────

@@ -31,9 +31,13 @@ const intentMap = [
     intent: 'track_repair',
     keywords: ['track', 'status', 'meri bag', 'bag kahan', 'kitna time',
       'kab milegi', 'ticket', 'order status', 'repair status', 'cha-',
+      // People asking if the bag is ready were falling through to the apology.
+      // These are status questions, not a new booking and not a store lookup.
+      'pickup', 'pick up', 'bag ready', 'ready for pickup', 'ready for pick up',
+      'is it ready', 'kab ready', 'kab tayyar', 'kab taiyar',
       // ── DRAFT — PENDING VEDANT & VATSAL REVIEW (see NATIVE_SCRIPT_DRAFT) ──
-      'ट्रैक', 'स्थिति', 'बैग कहाँ', 'कब मिलेगा', 'कब तैयार', 'टिकट',
-      'ટ્રૅક', 'સ્થિતિ', 'બેગ ક્યાં', 'ક્યારે મળશે', 'ક્યારે તૈયાર', 'ટિકિટ'],
+      'ट्रैक', 'स्थिति', 'बैग कहाँ', 'कब मिलेगा', 'कब तैयार', 'टिकट', 'बैग तैयार',
+      'ટ્રૅક', 'સ્થિતિ', 'બેગ ક્યાં', 'ક્યારે મળશે', 'ક્યારે તૈયાર', 'ટિકિટ', 'બેગ તૈયાર'],
     buttonIds: ['btn_track', 'flow_track'],
     /* Full message or embedded CHA-* / track CHA-* / lowercase / unicode dashes */
     matcher: (t) => isTicketLikeMessage(t),
@@ -42,7 +46,7 @@ const intentMap = [
     intent: 'repair',
     keywords: ['repair', 'fix', 'toot', 'kharab', 'broken', 'damage', 'sudharo',
       'mend', 'zip', 'wheel', 'handle', 'lock', 'stitching', 'cleaning',
-      'rampair', 'sudhar', 'tuti', 'bigdi', 'repar',
+      'rampair', 'sudhar', 'tuti', 'bigdi', 'repar', 'zipper',
       // ── DRAFT — PENDING VEDANT & VATSAL REVIEW (see NATIVE_SCRIPT_DRAFT) ──
       // NB: bare 'ठीक' is deliberately NOT here — it means "fine/OK", and
       // "ठीक है" is how people say yes. Only the compound verb form.
@@ -59,7 +63,7 @@ const intentMap = [
      * customers use, and the rename is a label change, not a vocabulary one. */
     keywords: ['shop', 'buy', 'kharidna', 'kharido', 'catalog', 'price',
       'kitna', 'kimat', 'rate', 'how much', 'show bags', 'bags dikhao',
-      'luggage', 'backpack', 'trolley', 'handbag', 'marketplace',
+      'luggage', 'backpack', 'trolley', 'handbag', 'marketplace', 'shopping',
       'corporate marketplace',
       'मार्केटप्लेस', 'कॉर्पोरेट मार्केटप्लेस', 'માર્કેટપ્લેસ', 'કોર્પોરેટ માર્કેટપ્લેસ',
       // ── DRAFT — PENDING VEDANT & VATSAL REVIEW (see NATIVE_SCRIPT_DRAFT) ──
@@ -125,6 +129,55 @@ const intentMap = [
   },
 ];
 
+/**
+ * Menu words that must match the whole word. A suffix here is a different
+ * word ("hi" inside "high"/"hindi"/"history", "help" inside "helpful") and
+ * was opening the menu — or, mid-booking, wiping it.
+ */
+const WHOLE_WORD_KEYWORDS = new Set(['hi', 'hey', 'help', 'home', 'start', 'हाय', 'હાય']);
+
+/** Typed answers to the post-booking "want repair updates?" question. */
+const REPAIR_UPDATE_YES = new Set([
+  'ru_yes', 'yes', 'yeah', 'yep', 'haan', 'han', 'haa', 'ji',
+  'हाँ', 'हां', 'हा', 'હા',
+]);
+const REPAIR_UPDATE_NO = new Set([
+  'ru_no', 'no', 'nope', 'nah', 'nahi', 'nahin', 'na',
+  'नहीं', 'नही', 'ना', 'ના', 'નહીં', 'નહિ',
+]);
+
+/**
+ * @returns {'yes'|'no'|null}
+ */
+function isRepairUpdatesAnswer(text) {
+  const t = String(text || '').trim().toLowerCase();
+  if (REPAIR_UPDATE_YES.has(t)) return 'yes';
+  if (REPAIR_UPDATE_NO.has(t)) return 'no';
+  return null;
+}
+
+/**
+ * "Where is my bag / ticket / repair" is a tracking question.
+ * "Where is the store" is not — there is no bag word, so this returns false
+ * and store_location's own "where" / "kahan hai" keywords still apply.
+ */
+function asksWhereTheBagIs(lower) {
+  const has = (word) => new RegExp(`(?:^|[^\\p{L}\\p{M}])${word}(?=$|[^\\p{L}\\p{M}])`, 'u').test(lower);
+  const where = has('where') || has('kahan') || has('kahaan') || has('kidhar')
+    || lower.includes('कहाँ') || lower.includes('कहां') || lower.includes('ક્યાં');
+  if (!where) return false;
+  // "where is the bag store" is the shop. "where is my bag" is the repair.
+  const shop = has('store') || has('shop') || has('dukan') || has('dukaan')
+    || lower.includes('दुकान') || lower.includes('દુકાન') || lower.includes('સ્ટોર');
+  const mine = has('my') || has('meri') || has('mera') || has('mere')
+    || has('ticket') || has('status');
+  if (shop && !mine) return false;
+  if (has('bag') || has('bags') || has('ticket') || has('order')) return true;
+  if (/बैग|टिकट|બેગ|ટિકિટ/.test(lower)) return true;
+  if (has('repair') && (has('my') || has('meri') || has('mera') || has('mere'))) return true;
+  return false;
+}
+
 function detectIntent(text, session) {
   if (!text || text === '__IMAGE__') {
     // An image mid-flow should continue the flow, not trigger a new intent
@@ -158,7 +211,11 @@ function detectIntent(text, session) {
    * incremented fallbackCount — so a customer answering the question properly
    * was being counted as failing to understand the bot. That matters now the
    * escalation offer triggers after two unresolved messages, not three. */
-  if (/^ru_(yes|no)$/i.test(text) && flow === 'repair_updates') {
+  // Yes/no to the repair-update question, including a typed "yes" / "हाँ" / "હા".
+  // The buttons are ru_yes/ru_no; customers often type the word instead. Either
+  // one is a real answer — counting it as a fallback was how a correct reply
+  // pushed someone toward "talk to a person".
+  if (flow === 'repair_updates' && isRepairUpdatesAnswer(text)) {
     resetFb();
     return '__continue_flow__';
   }
@@ -283,36 +340,58 @@ function detectIntent(text, session) {
   //     here because escalate's buttonIds already cover it, but the principle holds).
   const isButtonId = /^(btn_|flow_)[a-z_]+$/i.test(text);
 
+  // "where is my bag" / "kahan hai mera bag" were opening the store picker,
+  // because store_location owns the bare words "where" and "kahan hai" and is
+  // the right answer only when they have NOT named the bag, the ticket, or
+  // their own repair. Checked before the keyword loop so it beats both.
+  if (asksWhereTheBagIs(lower)) {
+    resetFb();
+    return 'track_repair';
+  }
+
   /**
-   * Does `lower` contain keyword `k` as a WORD, not as a random substring?
+   * Does `lower` contain keyword `k` as a word (or a deliberate stem)?
    *
-   * The old rule applied a word boundary only to keywords of 3 characters or
-   * fewer and used a bare `.includes()` for everything else. That produced
-   * collisions that were invisible until someone typed the obvious thing:
+   * Two bugs used to hide in one `.includes()`:
+   *   "corporate" contained "rate"  -> shop catalogue
+   *   "hi" was a prefix of "high", "hindi", "history" -> main menu
+   * and a third: Devanagari/Gujarati letters were treated as boundaries, so
+   * "दाम" matched inside "बादाम".
    *
-   *   "corporate"     contains "rate"   -> opened the shop catalogue
-   *   "customer care" contains "custom" -> opened the bulk-order lead form
-   *
-   * The fix is a boundary at the START only. Keywords here are deliberately
-   * stems — 'repair' must still match "repairing", 'direction' must match
-   * "directions", 'condition' must match "conditions" — so trailing letters
-   * stay allowed. What is no longer allowed is a keyword beginning in the
-   * middle of a longer word, which is where every one of these bugs came from.
-   *
-   * Non-Latin keywords (Devanagari / Gujarati) work unchanged: their
-   * neighbouring characters are outside [a-z], so both boundaries hold.
+   * Latin stems still accept a grammatical suffix ("repair" -> "repairing",
+   * "direction" -> "directions", "customis" -> "customise"). They may not
+   * start mid-word, and they may not grow into a different word ("person"
+   * does not match "personal"). A few menu words are whole words only —
+   * "hi" / "help" / "start" — because a suffix there was stealing real
+   * requests into the greeting.
    */
   function keywordMatches(lower, k) {
     const kw = String(k).toLowerCase().trim();
     if (!kw) return false;
     const escaped = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return new RegExp(`(?:^|[^a-z])${escaped}[a-z]*(?:$|[^a-z])`).test(lower);
+    const whole = WHOLE_WORD_KEYWORDS.has(kw);
+    const latin = /^[\x00-\x7f]+$/.test(kw);
+    // Letters AND combining marks. A Devanagari vowel sign is a mark, not a
+    // letter — treating it as a boundary made "दाम" match inside "बादाम".
+    const edge = '[^\\p{L}\\p{M}]';
+    if (!latin && !whole) {
+      // Indic keywords must start a word. Trailing letters stay allowed so
+      // "कीमत" still matches "कीमतें", but "दाम" no longer matches "बादाम".
+      return new RegExp(`(?:^|${edge})${escaped}`, 'u').test(lower);
+    }
+    const suffix = whole ? '' : '(?:ation|ing|ed|es|ers|er|s|e)?';
+    return new RegExp(`(?:^|${edge})${escaped}${suffix}(?=$|${edge})`, 'u').test(lower);
   }
+
+  // main_menu is listed first, but a greeting word must not beat a specific
+  // request in the same sentence ("start the repair", "help fix my zip").
+  // Remember a menu hit and keep scanning; a later real intent wins.
+  let menuHit = false;
 
   for (const { intent, keywords, buttonIds, pattern, matcher } of intentMap) {
     // Check exact button IDs first (most reliable)
     if (buttonIds?.includes(text)) {
-      if (session?.phone) updateSession(session.phone, { fallbackCount: 0 });
+      resetFb();
       return intent;
     }
 
@@ -329,16 +408,23 @@ function detectIntent(text, session) {
 
     // Regex or custom matchers (e.g., ticket IDs in free text)
     if (patternMatch) {
-      if (session?.phone) updateSession(session.phone, { fallbackCount: 0 });
+      resetFb();
       return intent;
     }
 
-    // Check keywords. Short ones (hi, hey) must be whole words — otherwise
-    // "hi" matches "stitching" / "something" and dumps a booking into the menu.
     if (keywords?.some(k => keywordMatches(lower, k))) {
-      if (session?.phone) updateSession(session.phone, { fallbackCount: 0 });
+      if (intent === 'main_menu') {
+        menuHit = true;
+        continue;
+      }
+      resetFb();
       return intent;
     }
+  }
+
+  if (menuHit) {
+    resetFb();
+    return 'main_menu';
   }
 
   // Increment fallback counter (persisted so escalation logic is reliable)
@@ -351,6 +437,7 @@ function detectIntent(text, session) {
 
 module.exports = {
   detectIntent,
+  isRepairUpdatesAnswer,
   /** Exported so the shadowing test reads the REAL keyword lists rather than a
    *  copy that would silently drift out of date. Treat as read-only. */
   intentMap,

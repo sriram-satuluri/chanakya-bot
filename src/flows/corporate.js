@@ -39,7 +39,7 @@ async function handleCorporateFlow(phone, text, session, intent = null) {
     case 'ask_company': {
       // Reject empty input or button IDs (e.g., double-tap of the Corporate button,
       // or tap on an old menu button still visible in the chat history)
-      if (!text || text.length < 2 || /^(btn_|bag_|prob_|store_|cat_)/.test(text)) {
+      if (!text || text.length < 2 || /^(btn_|bag_|prob_|store_|cat_)/.test(text) || !/\p{L}/u.test(text)) {
         return sendTextMessage(phone, M.get('corporate_ask_company', lang));
       }
       updateSession(phone, { flowStep: 'ask_contact_name', collectedData: { ...data, company: text.trim() } });
@@ -47,7 +47,7 @@ async function handleCorporateFlow(phone, text, session, intent = null) {
     }
 
     case 'ask_contact_name': {
-      if (!text || text.length < 2 || /^(btn_|bag_|prob_|store_|cat_)/.test(text)) {
+      if (!text || text.length < 2 || /^(btn_|bag_|prob_|store_|cat_)/.test(text) || !/\p{L}/u.test(text)) {
         return sendTextMessage(phone, M.get('corporate_ask_name', lang));
       }
       updateSession(phone, { flowStep: 'ask_product_type', collectedData: { ...data, name: text.trim() } });
@@ -55,7 +55,7 @@ async function handleCorporateFlow(phone, text, session, intent = null) {
     }
 
     case 'ask_product_type': {
-      if (!text || text.length < 2 || /^(btn_|bag_|prob_|store_|cat_)/.test(text)) {
+      if (!text || text.length < 2 || /^(btn_|bag_|prob_|store_|cat_)/.test(text) || !/\p{L}/u.test(text)) {
         return sendTextMessage(phone, M.get('corporate_ask_product', lang));
       }
       updateSession(phone, { flowStep: 'ask_quantity', collectedData: { ...data, productType: text.trim() } });

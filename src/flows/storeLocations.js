@@ -64,9 +64,22 @@ async function sendStorePicker(phone, lang) {
  * @param {object} session
  * @param {string | null} [intent]
  */
-/** True for the two store-direction payloads. */
-function isDirectionButton(text) {
-  return text === 'btn_dir_alkapuri' || text === 'btn_dir_sursagar';
+/** True for the two store-direction payloads, or a typed store name. */
+function directionButtonFor(text) {
+  const t = String(text || '').trim().toLowerCase();
+  if (t === 'btn_dir_alkapuri' || t.includes('alkapuri') || t.includes('race course')) return 'btn_dir_alkapuri';
+  if (t === 'btn_dir_sursagar' || t.includes('sursagar') || t.includes('pratap')) return 'btn_dir_sursagar';
+  return null;
+}
+
+/** Intents that mean "leave the store picker and do this instead". */
+const LEAVE_STORE_FOR = new Set(['repair', 'track_repair', 'shop_catalog', 'corporate', 'terms']);
+
+function releaseFlow(phone, session) {
+  updateSession(phone, { currentFlow: null, flowStep: null, collectedData: {} });
+  session.currentFlow = null;
+  session.flowStep = null;
+  session.collectedData = {};
 }
 
 /**
@@ -117,17 +130,26 @@ async function handleStoreLocations(phone, text, session, intent = null) {
   // repair / track / catalog / corporate flows already have.
   if (intent === 'escalate') return handleEscalation(phone, lang, text);
 
-  // A direction tap is answered wherever it arrives.
-  if (isDirectionButton(text)) {
-    await sendStoreInfo(phone, text, lang);
-    // Only tidy up the session if THIS flow owned it. A customer who tapped a
-    // direction button while half-way through booking a repair must find that
-    // booking exactly where they left it.
+  // "Alkapuri" / "Sursagar" typed at the picker used to re-ask which store.
+  // A direction button id still works from any session state.
+  const direction = directionButtonFor(text);
+  const namedStore = direction
+    && (direction === text || intent === 'store_location' || intent === 'fallback' || intent == null);
+  if (namedStore) {
+    await sendStoreInfo(phone, direction, lang);
     if (session.currentFlow === FLOW) clearSession(phone);
     return;
   }
 
   const inPick = session.currentFlow === FLOW && session.flowStep === 'pick_store';
+
+  // "repair" / "track" while the two store buttons are up is that request,
+  // not a failed store pick. Returning false lets the router start it.
+  if (inPick && LEAVE_STORE_FOR.has(intent)) {
+    releaseFlow(phone, session);
+    return false;
+  }
+
   if (!inPick) return sendStorePicker(phone, lang);
 
   // Still choosing: explicit store intent or “Locations” again → refresh picker

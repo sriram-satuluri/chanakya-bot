@@ -226,11 +226,52 @@ async function processMessage(message, contact) {
     console.log(`[LANG] ${redactPhone(phone)} switched language: -> ${langOverride}`);
   }
 
+  // The message was ONLY a language name.
+  //
+  // Mid-booking, that word must not be stored as the customer's name or read
+  // as a bag problem — blank it so the active step asks again, in the language
+  // they just picked. With no flow open, show the menu in that language.
+  // Falling through used to apologise ("Sorry, I didn't quite get that") for
+  // a message we had just understood, or file "hindi" as their name.
+  const pureLanguageSwitch = Boolean(langOverride) && !answeredPickerByTyping;
+  if (pureLanguageSwitch && session.currentFlow && session.currentFlow !== 'paused') {
+    text = '';
+  }
+
   // Update last activity time
   updateSession(phone, { lastActivity: Date.now() });
 
-  // Detect intent
-  let intent = detectIntent(text, session);
+  // Idle "Hindi" / "English" / "Gujarati": the language is already applied.
+  // Showing the menu is the acknowledgement. Detecting intent first was the
+  // apology, and it also counted the switch toward the fallback limit.
+  if (pureLanguageSwitch && !session.currentFlow) {
+    logAnalytics({
+      phone,
+      language: session.language,
+      intent: 'change_language',
+      customerMessage: text,
+      sessionId: `sess_${phone}`,
+      flowName: '',
+      flowStep: '',
+    }).catch(() => {});
+    try {
+      await showMainMenu(phone, session.language);
+    } catch (err) {
+      console.error('[MSG] language-switch menu failed:', err.message);
+    }
+    return;
+  }
+
+  // Detect intent. A language word while waiting on a human is not a failure
+  // to understand — they switched language, then get the waiting note in it.
+  let intent;
+  if (pureLanguageSwitch && session.currentFlow === 'paused') {
+    updateSession(phone, { fallbackCount: 0 });
+    session.fallbackCount = 0;
+    intent = 'fallback';
+  } else {
+    intent = detectIntent(text, session);
+  }
 
   // List/button row ids must never be treated as "hi"/"menu". That used to
   // wipe an in-progress booking and re-show the main menu (Repairs / Track).
@@ -423,8 +464,7 @@ async function routeMessage({ phone, text, msgType, message, session, intent, an
     } catch (e) {
       // Don't falsely confirm a compliance action that didn't persist.
       console.error(`[OPT] Failed to persist ${intent} for ${redactPhone(phone)}:`, e.message);
-      return sendTextMessage(phone,
-        'Sorry, we could not update your message preferences right now. Please send this again in a few minutes.');
+      return sendTextMessage(phone, M.get('preference_save_failed', session.language));
     }
     console.log(`[OPT] ${intent} recorded for ${redactPhone(phone)}`);
     let confirm = M.get(optIn ? 'opt_in_confirmed' : 'opt_out_confirmed', session.language);
@@ -582,12 +622,24 @@ async function routeMessage({ phone, text, msgType, message, session, intent, an
     switch (session.currentFlow) {
       case 'repair':    return handleRepairFlow(phone, text, msgType, message, session, intent);
       case 'track':     return handleTrackFlow(phone, text, session, intent);
-      case 'catalog':   return handleCatalogFlow(phone, text, session, intent);
+      case 'catalog': {
+        // false: the tap wasn't a category, it was a different request
+        // ("repair", "track"). The flow has already stepped aside.
+        const catalogResult = await handleCatalogFlow(phone, text, session, intent);
+        if (catalogResult === false) break;
+        return catalogResult;
+      }
       case 'corporate': return handleCorporateFlow(phone, text, session, intent);
-      case 'store_location':
-        return handleStoreLocations(phone, text, session, intent);
-      case 'repair_updates':
-        return handleRepairUpdatesAnswer(phone, text, session, intent);
+      case 'store_location': {
+        const storeResult = await handleStoreLocations(phone, text, session, intent);
+        if (storeResult === false) break;
+        return storeResult;
+      }
+      case 'repair_updates': {
+        const updatesResult = await handleRepairUpdatesAnswer(phone, text, session, intent);
+        if (updatesResult === false) break;
+        return updatesResult;
+      }
       // No 'language' case: the awaitingLanguageChoice() gate above owns that
       // state entirely, including its escape hatches. Re-handling it here is
       // what re-sent the picker forever, because this switch runs BEFORE the

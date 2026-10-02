@@ -756,6 +756,60 @@ test('adding native greetings did not swallow the other native-script commands',
   assert.strictEqual(detectIntent('કોઈ સાથે વાત', S()), 'escalate');
 });
 
+test('short menu words do not match inside longer words', () => {
+  const S = () => ({ phone: null });
+  assert.notStrictEqual(detectIntent('high', S()), 'main_menu');
+  assert.notStrictEqual(detectIntent('history', S()), 'main_menu');
+  assert.notStrictEqual(detectIntent('hindi', S()), 'main_menu');
+  assert.notStrictEqual(detectIntent('helpful', S()), 'main_menu');
+  assert.strictEqual(detectIntent('hi', S()), 'main_menu');
+  assert.strictEqual(detectIntent('help', S()), 'main_menu');
+});
+
+test('a specific request beats a greeting word in the same sentence', () => {
+  const S = () => ({ phone: null });
+  assert.strictEqual(detectIntent('start the repair', S()), 'repair');
+  assert.strictEqual(detectIntent('please help repair my zip', S()), 'repair');
+  assert.strictEqual(detectIntent('hi', S()), 'main_menu');
+});
+
+test('where-is-my-bag tracks, where-is-the-store does not, personal does not escalate', () => {
+  const S = () => ({ phone: null });
+  assert.strictEqual(detectIntent('where is my bag', S()), 'track_repair');
+  assert.strictEqual(detectIntent('kahan hai mera bag', S()), 'track_repair');
+  assert.strictEqual(detectIntent('where is my repair', S()), 'track_repair');
+  assert.strictEqual(detectIntent('ready for pickup', S()), 'track_repair');
+  assert.strictEqual(detectIntent('where is the store', S()), 'store_location');
+  assert.strictEqual(detectIntent('where is the bag store', S()), 'store_location');
+  assert.strictEqual(detectIntent('kahan hai dukaan', S()), 'store_location');
+  assert.notStrictEqual(detectIntent('this is personal', S()), 'escalate');
+  assert.strictEqual(detectIntent('talk to a person', S()), 'escalate');
+});
+
+test('stems still match, and an Indic keyword does not match inside a longer word', () => {
+  const S = () => ({ phone: null });
+  assert.strictEqual(detectIntent('repairing', S()), 'repair');
+  assert.strictEqual(detectIntent('directions', S()), 'store_location');
+  assert.strictEqual(detectIntent('conditions', S()), 'terms');
+  assert.strictEqual(detectIntent('customise', S()), 'corporate');
+  assert.strictEqual(detectIntent('customize', S()), 'corporate');
+  assert.strictEqual(detectIntent('shopping', S()), 'shop_catalog');
+  assert.strictEqual(detectIntent('zipper', S()), 'repair');
+  assert.strictEqual(detectIntent('दाम', S()), 'shop_catalog');
+  assert.notStrictEqual(detectIntent('बादाम', S()), 'shop_catalog');
+  assert.strictEqual(detectIntent('कीमतें', S()), 'shop_catalog');
+});
+
+test('typed yes and no at the update question are not fallbacks', () => {
+  const s = { phone: null, currentFlow: 'repair_updates' };
+  assert.strictEqual(detectIntent('yes', s), '__continue_flow__');
+  assert.strictEqual(detectIntent('no', s), '__continue_flow__');
+  assert.strictEqual(detectIntent('हाँ', s), '__continue_flow__');
+  assert.strictEqual(detectIntent('હા', s), '__continue_flow__');
+  // The same words outside that question are not a hidden command.
+  assert.strictEqual(detectIntent('yes', { phone: null }), 'fallback');
+});
+
 // ── Status poller: opt-in reminders vs always-on ready/closed ──
 const { decideAction, shouldDeferForQuietHours } = require('../src/jobs/statusPoller');
 const HOUR = 60 * 60 * 1000;

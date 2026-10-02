@@ -15,6 +15,7 @@ const { uploadInboundRepairPhoto } = require('./latePhoto');
 const { showMainMenu } = require('./mainMenu');
 const { handleEscalation } = require('./escalate');
 const { askRepairUpdatesOptIn } = require('./repairUpdates');
+const { detectIntent } = require('../utils/intentDetect');
 const { envInt } = require('../utils/env');
 const M = require('../messages/index');
 
@@ -66,9 +67,17 @@ function looksLikeStaffName(text) {
 function looksLikePersonName(text) {
   const t = String(text || '').trim();
   if (t.length < 2 || t.length > 40) return false;
-  if (/^(btn_|bag_|prob_|store_|cat_|lang_|combo_)/i.test(t)) return false;
-  if (/^\d+$/.test(t)) return false;
-  return true;
+  if (/^(btn_|bag_|prob_|store_|cat_|lang_|combo_|ru_|track_)/i.test(t)) return false;
+  if (t === '__IMAGE__') return false;
+  // A name is a few words of letters. "zip is broken", "👍", and "12345"
+  // used to be stored as the customer name — the old check was only "not a
+  // button id, and not longer than 40 characters".
+  const words = t.split(/\s+/);
+  if (words.length > 3) return false;
+  if (!words.every((w) => /^[\p{L}][\p{L}'.-]*$/u.test(w))) return false;
+  if ((t.match(/\p{L}/gu) || []).length < 2) return false;
+  // "zip", "track", "alkapuri" look like short names and are not.
+  return detectIntent(t, { phone: null }) === 'fallback';
 }
 
 // ── Bag types & problems ──────────────────────────────────────
@@ -164,7 +173,7 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
       // Reject empty/too-short input, button IDs (user double-tapped a menu
       // button), and __IMAGE__ — re-prompt for a real name instead of
       // storing "btn_repair" as the customer's name.
-      if (!text || text.length < 2 || /^(btn_|bag_|prob_|store_|cat_|combo_)/.test(text) || text === '__IMAGE__') {
+      if (!looksLikePersonName(text)) {
         return sendTextMessage(phone, M.get('ask_name', lang));
       }
       const name = text.trim();
@@ -254,6 +263,13 @@ async function handleRepairFlow(phone, text, msgType, rawMessage, session, inten
       // id, an emoji, one character). Booking from home is the common case —
       // never block it over an optional field, so anything unusable is simply
       // treated as "no staff member" rather than re-prompted.
+      //
+      // Empty is the exception: a language switch blanks the message so the
+      // step can ask again in the new language. Treating that as "skip" would
+      // jump them to the photo.
+      if (!String(text || '').trim()) {
+        return sendSalespersonPrompt(phone, lang);
+      }
       const servedBy = looksLikeStaffName(text) ? text.trim() : '';
       const nextData = { ...data, servedBy, store };
       updateSession(phone, { flowStep: 'ask_photo', collectedData: nextData });

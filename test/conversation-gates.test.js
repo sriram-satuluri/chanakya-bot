@@ -47,6 +47,7 @@ require.cache[wp].exports.sendListMessage = async (to, header, body, label, sect
   const ids = (sections && sections[0] ? sections[0].rows : []).map((r) => r.id);
   outbound.push({ kind: 'list', to, body: String(body), ids }); return {};
 };
+require.cache[wp].exports.sendLocationMessage = async () => ({});
 
 const sp = require.resolve('../src/services/sheets');
 require(sp);
@@ -58,6 +59,14 @@ require.cache[sp].exports.getCustomerLanguage = async () => null;
 require.cache[sp].exports.getCustomerName = async () => null;
 require.cache[sp].exports.getOpenTicketsForPhone = async () => [];
 require.cache[sp].exports.hasOpenOptedInTicket = async () => false;
+require.cache[sp].exports.findTicketsByPhone = async () => [];
+require.cache[sp].exports.findTicket = async () => null;
+// Mutable so one test can simulate a failed consent write. The flow captured
+// this binding at load time, so swapping the export later would not be seen.
+const sheetsHooks = {
+  setRepairUpdatesOptIn: async () => {},
+};
+require.cache[sp].exports.setRepairUpdatesOptIn = (...args) => sheetsHooks.setRepairUpdatesOptIn(...args);
 
 const { handleWebhook } = require('../src/webhook/handler');
 const { updateSession, getSession } = require('../src/utils/sessionStore');
@@ -348,6 +357,194 @@ test('a direction tap resolves as a real intent, from no session at all', () => 
   // The router-level guarantee, independent of any flow.
   assert.strictEqual(detectIntent('btn_dir_alkapuri', { phone: null }), 'store_location');
   assert.strictEqual(detectIntent('btn_dir_sursagar', { phone: null }), 'store_location');
+});
+
+// ── Wrong fallbacks ───────────────────────────────────────────
+/**
+ * Found by walking phrases a customer actually sends. Each one used to land
+ * on the apology, the store picker, or a brand-new booking.
+ */
+test('asking where the bag is tracks it, and asking where the shop is does not', async () => {
+  const bag = '919444000040';
+  updateSession(bag, { language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now() });
+  const whereBag = await send(bag, 'where is my bag');
+  assert.ok(!CONFUSED.test(allText(whereBag)), 'where is my bag must not fall back');
+  assert.ok(allText(whereBag).includes("couldn't find any repair"), 'it is a tracking question');
+  assert.ok(!allIds(whereBag).includes('btn_dir_alkapuri'), 'it must not open the store picker');
+
+  const shop = '919444000041';
+  updateSession(shop, { language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now() });
+  const whereShop = await send(shop, 'where is the store');
+  assert.ok(allIds(whereShop).includes('btn_dir_alkapuri'), 'where is the store opens the store picker');
+});
+
+test('a ready-for-pickup question is tracking, not an apology', async () => {
+  const phone = '919444000042';
+  updateSession(phone, { language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now() });
+  const out = await send(phone, 'ready for pickup');
+  assert.ok(!CONFUSED.test(allText(out)), 'ready for pickup must be understood');
+  assert.ok(allText(out).includes("couldn't find any repair"));
+});
+
+test('high, history and personal are not a greeting or a handoff', async () => {
+  const phone = '919444000043';
+  updateSession(phone, { language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now() });
+  const high = await send(phone, 'high');
+  assert.ok(allText(high).includes("didn't quite get that"), '"high" is not "hi"');
+  assert.ok(!allText(high).includes('since 1996'), 'and must not re-welcome them');
+
+  const personal = '919444000044';
+  updateSession(personal, { language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now() });
+  const out = await send(personal, 'this is personal');
+  assert.ok(!allText(out).includes('Connecting you'), '"personal" must not escalate');
+});
+
+test('help repairing a zip starts a booking, it does not open the menu', async () => {
+  const phone = '919444000045';
+  updateSession(phone, { language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now() });
+  const out = await send(phone, 'please help repair my zip');
+  assert.ok(allText(out).includes('name'), 'should ask for the name and start the repair');
+  assert.ok(!allText(out).includes('since 1996'));
+});
+
+test('typing yes or no answers the repair-update question', async () => {
+  const yesPhone = '919444000046';
+  updateSession(yesPhone, {
+    language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now(),
+    currentFlow: 'repair_updates', flowStep: 'ask_optin',
+    collectedData: { ticketId: 'CHA-R-2026-0009' },
+  });
+  const yes = await send(yesPhone, 'yes');
+  assert.ok(allText(yes).includes('Done'), 'typed yes opts in');
+  assert.ok(!CONFUSED.test(allText(yes)));
+
+  const noPhone = '919444000047';
+  updateSession(noPhone, {
+    language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now(),
+    currentFlow: 'repair_updates', flowStep: 'ask_optin',
+    collectedData: { ticketId: 'CHA-R-2026-0010' },
+  });
+  const no = await send(noPhone, 'no');
+  assert.ok(allText(no).includes('No problem'), 'typed no declines');
+});
+
+test('a real request at the update question is handled, not swallowed', async () => {
+  const phone = '919444000048';
+  updateSession(phone, {
+    language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now(),
+    currentFlow: 'repair_updates', flowStep: 'ask_optin',
+    collectedData: { ticketId: 'CHA-R-2026-0011' },
+  });
+  const out = await send(phone, 'track');
+  assert.ok(allText(out).length > 0, 'must reply');
+  assert.ok(allText(out).includes("couldn't find any repair"), 'track must run');
+  assert.strictEqual(getSession(phone).currentFlow, 'track');
+});
+
+test('gibberish at the update question gets the apology, not silence', async () => {
+  const phone = '919444000049';
+  updateSession(phone, {
+    language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now(),
+    currentFlow: 'repair_updates', flowStep: 'ask_optin',
+    collectedData: { ticketId: 'CHA-R-2026-0012' },
+  });
+  const out = await send(phone, 'qqzz9');
+  assert.ok(allText(out).includes("didn't quite get that"));
+});
+
+test('a failed opt-in does not claim it was saved', async () => {
+  const phone = '919444000050';
+  sheetsHooks.setRepairUpdatesOptIn = async () => { throw new Error('sheet down'); };
+  try {
+    updateSession(phone, {
+      language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now(),
+      currentFlow: 'repair_updates', flowStep: 'ask_optin',
+      collectedData: { ticketId: 'CHA-R-2026-0013' },
+    });
+    const out = await send(phone, 'yes');
+    assert.ok(!allText(out).includes('Done'), 'must not confirm a write that failed');
+    assert.ok(allText(out).toLowerCase().includes('could not save'));
+    assert.strictEqual(getSession(phone).currentFlow, 'repair_updates', 'they can answer again');
+  } finally {
+    sheetsHooks.setRepairUpdatesOptIn = async () => {};
+  }
+});
+
+test('typing the store name answers the picker', async () => {
+  const phone = '919444000051';
+  updateSession(phone, { language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now() });
+  await send(phone, 'btn_location');
+  const out = await send(phone, 'Alkapuri');
+  assert.ok(!CONFUSED.test(allText(out)));
+  assert.ok(allText(out).includes('Alkapuri'));
+  assert.ok(allText(out).includes('Race Course') || allText(out).includes('maps') || allText(out).includes('http'),
+    'should send the store details, not ask which store again');
+});
+
+test('typing repair at the store picker starts a repair', async () => {
+  const phone = '919444000052';
+  updateSession(phone, { language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now() });
+  await send(phone, 'btn_location');
+  const out = await send(phone, 'repair');
+  assert.ok(allText(out).includes('name'), 'repair must start');
+  assert.ok(!allIds(out).includes('btn_dir_alkapuri'), 'must not re-ask which store');
+});
+
+test('an emoji is not saved as the customer name', async () => {
+  const phone = '919444000053';
+  updateSession(phone, { language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now() });
+  await send(phone, 'btn_repair');
+  const out = await send(phone, '👍');
+  assert.ok(allText(out).includes('name'), 'should ask for the name again');
+  assert.notStrictEqual(getSession(phone).collectedData?.name, '👍');
+});
+
+test('a problem typed at the bag step does not replace the name', async () => {
+  const phone = '919444000054';
+  updateSession(phone, {
+    language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now(),
+    currentFlow: 'repair', flowStep: 'ask_bag_type',
+    collectedData: { name: 'Meera' },
+  });
+  const out = await send(phone, 'zip is broken');
+  assert.strictEqual(getSession(phone).collectedData.name, 'Meera');
+  assert.ok(allText(out).includes('Meera'));
+  assert.strictEqual(getSession(phone).flowStep, 'ask_bag_type');
+});
+
+test('a real name typed at the bag step is still accepted', async () => {
+  const phone = '919444000055';
+  updateSession(phone, {
+    language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now(),
+    currentFlow: 'repair', flowStep: 'ask_bag_type',
+    collectedData: { name: 'Meera' },
+  });
+  const out = await send(phone, 'Priya');
+  assert.strictEqual(getSession(phone).collectedData.name, 'Priya');
+  assert.ok(allText(out).includes('Priya'));
+});
+
+test('typing Hindi mid-booking switches language and re-asks, it does not file the word as a name', async () => {
+  const phone = '919444000056';
+  updateSession(phone, {
+    language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now(),
+    currentFlow: 'repair', flowStep: 'ask_name', collectedData: {},
+  });
+  const out = await send(phone, 'Hindi');
+  assert.strictEqual(getSession(phone).language, 'hindi');
+  assert.strictEqual(getSession(phone).flowStep, 'ask_name');
+  assert.ok(!getSession(phone).collectedData?.name, 'hindi must not be stored as the name');
+  assert.ok(allText(out).includes('नाम'), 'the question is asked again in Hindi');
+  assert.ok(!allText(out).includes("didn't quite get that"));
+});
+
+test('typing Hindi with nothing else open shows the Hindi menu, not an apology', async () => {
+  const phone = '919444000057';
+  updateSession(phone, { language: 'english', needsLanguagePick: false, greeted: true, lastActivity: Date.now() });
+  const out = await send(phone, 'Hindi');
+  assert.ok(allText(out).includes('स्वागत'), 'menu body should be Hindi');
+  assert.ok(!allText(out).includes("didn't quite get that"));
+  assert.ok(allIds(out).includes('btn_repair'));
 });
 
 test.after(() => { try { fs.rmSync(TMP, { recursive: true, force: true }); } catch { /* temp dir */ } });

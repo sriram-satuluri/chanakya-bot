@@ -2,6 +2,7 @@ const { sendButtonMessage, sendTextMessage } = require('../services/whatsapp');
 const { setRepairUpdatesOptIn, getOpenTicketsForPhone } = require('../services/sheets');
 const { updateSession, clearSession } = require('../utils/sessionStore');
 const { handleEscalation } = require('./escalate');
+const { isRepairUpdatesAnswer } = require('../utils/intentDetect');
 const M = require('../messages/index');
 
 const _rd = (p) => (p && p.length > 4) ? '***' + p.slice(-4) : '***';
@@ -31,15 +32,18 @@ async function askRepairUpdatesOptIn(phone, lang, ticketId) {
 }
 
 /**
- * Handle the yes/no answer to the question above. Anything unrecognised is
- * treated as "no" and the session is released, so a customer who ignores the
- * question and types something else is never trapped in this flow — they just
- * don't get opted in (the privacy-safe default).
+ * Handle the yes/no answer to the question above.
+ *
+ * A typed "yes" / "no" (and the Hindi and Gujarati equivalents) counts. Anything
+ * else is NOT an answer: the session is released and the router is told to keep
+ * going, so "track" or "menu" after booking actually happens. The old code
+ * treated every other message as a silent decline and sent nothing back.
+ *
+ * @returns {Promise<false|*>} false means "I did not consume this — route it"
  */
 async function handleRepairUpdatesAnswer(phone, text, session, intent = null) {
   const lang = session.language || 'english';
   const ticketId = session.collectedData?.ticketId || null;
-  const choice = String(text || '').toLowerCase();
 
   // "Talk to a person" is not an answer to the opt-in question. Before this
   // guard it fell into the treat-anything-as-"no" branch below: the customer
@@ -54,28 +58,39 @@ async function handleRepairUpdatesAnswer(phone, text, session, intent = null) {
     return handleEscalation(phone, lang, text);
   }
 
-  clearSession(phone);
+  const answer = isRepairUpdatesAnswer(text);
 
-  if (choice === 'ru_yes') {
+  if (answer === 'yes') {
     try {
       await setRepairUpdatesOptIn(phone, true, { ticketId });
       console.log(`[REPAIR-UPDATES] ${_rd(phone)} opted IN for ${ticketId || '(all open)'}`);
     } catch (e) {
+      // Leave the question up so they can tap again. Confirming "Done" here
+      // was a consent we had not actually stored.
       console.error(`[REPAIR-UPDATES] Failed to opt in ${_rd(phone)}:`, e.message);
+      return sendTextMessage(phone, M.get('preference_save_failed', lang));
     }
+    clearSession(phone);
     return sendTextMessage(phone, M.get('repair_updates_on_confirm', lang))
       .catch((e) => console.error('[REPAIR-UPDATES] Opt-in confirm failed:', e.message));
   }
 
-  if (choice === 'ru_no') {
+  if (answer === 'no') {
+    clearSession(phone);
     console.log(`[REPAIR-UPDATES] ${_rd(phone)} declined updates for ${ticketId || '(none)'}`);
     return sendTextMessage(phone, M.get('repair_updates_declined', lang))
       .catch((e) => console.error('[REPAIR-UPDATES] Decline confirm failed:', e.message));
   }
 
-  // Any other reply — leave opted_in FALSE (as created). Don't lecture them;
-  // the question simply went unanswered, which is the privacy-safe default.
+  // Not an answer. Stay opted out (the privacy-safe default) and let the
+  // router do what they actually asked — track, repair, the menu, or the
+  // ordinary "I didn't get that" prompt. Silence was the bug.
   console.log(`[REPAIR-UPDATES] ${_rd(phone)} left reminders unanswered for ${ticketId || '(none)'}`);
+  updateSession(phone, { currentFlow: null, flowStep: null, collectedData: {} });
+  session.currentFlow = null;
+  session.flowStep = null;
+  session.collectedData = {};
+  return false;
 }
 
 /**
@@ -102,8 +117,7 @@ async function handleRepairUpdatesCommand(phone, lang, turnOn) {
   } catch (e) {
     // Don't claim success we didn't achieve — this is a consent action.
     console.error(`[REPAIR-UPDATES] Failed to toggle for ${_rd(phone)}:`, e.message);
-    return sendTextMessage(phone,
-      'Sorry, we could not update your preference right now. Please send this again in a few minutes.');
+    return sendTextMessage(phone, M.get('preference_save_failed', lang));
   }
 
   return sendTextMessage(phone,

@@ -30,7 +30,14 @@ async function handleCatalogFlow(phone, text, session, intent = null) {
       }
       const cat = resolveCategory(text, lang);
       if (!cat) {
-        // Bad input → re-prompt
+        // "repair" / "track" while the category list is up is that request.
+        if (['repair', 'track_repair', 'corporate', 'terms', 'store_location'].includes(intent)) {
+          updateSession(phone, { currentFlow: null, flowStep: null, collectedData: {} });
+          session.currentFlow = null;
+          session.flowStep = null;
+          session.collectedData = {};
+          return false;
+        }
         return sendCategoryMenu(phone, lang);
       }
       return sendCategoryLink(phone, lang, cat);
