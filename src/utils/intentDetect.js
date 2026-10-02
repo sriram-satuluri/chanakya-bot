@@ -178,6 +178,14 @@ function asksWhereTheBagIs(lower) {
   return false;
 }
 
+/** Digits and separators only — "1, 3", "१ ३", not a sentence that happens to contain a number. */
+function isProblemNumberReply(text) {
+  const t = String(text || '').trim();
+  if (!t || t.length > 40) return false;
+  if (!/^[\d\s,،、.\u0966-\u096F\u0AE6-\u0AEF]+$/u.test(t)) return false;
+  return /[\d\u0966-\u096F\u0AE6-\u0AEF]/u.test(t);
+}
+
 function detectIntent(text, session) {
   if (!text || text === '__IMAGE__') {
     // An image mid-flow should continue the flow, not trigger a new intent
@@ -201,6 +209,12 @@ function detectIntent(text, session) {
       resetFb();
       return '__continue_flow__';
     }
+  }
+  // "1, 3" (or Devanagari / Gujarati digits) is a repair answer: several issues
+  // in one reply. It must not count as a failure to understand the bot.
+  if (flow === 'repair' && isProblemNumberReply(text)) {
+    resetFb();
+    return '__continue_flow__';
   }
   if ((/^cat_\d+$/i.test(text) || /^cat_all$/i.test(text)) && flow === 'catalog') {
     resetFb();

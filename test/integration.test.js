@@ -370,7 +370,7 @@ test('picking a problem continues to the store picker', async () => {
   assert.strictEqual(s.collectedData.problem, 'Zip / Chain Issue');
 });
 
-test('a bag with several issues can book up to five, one at a time', async () => {
+test('several issues can be sent as numbers in one reply', async () => {
   const wp = require.resolve('../src/services/whatsapp');
   require(wp);
   const sent = [];
@@ -387,102 +387,80 @@ test('a bag with several issues can book up to five, one at a time', async () =>
   const { getSession } = require('../src/utils/sessionStore');
 
   const phone = '919888000010';
-  const base = {
+  const session = {
     language: 'english',
     currentFlow: 'repair',
+    flowStep: 'ask_problem',
     collectedData: { name: 'Ravi', bagType: 'Trolley / Luggage Bag' },
   };
-  // updateSession only writes the fields it is given, so a stored session does
-  // not keep currentFlow. Rebuild the object the flow actually receives.
-  const snap = () => {
-    const s = getSession(phone);
-    return {
-      language: 'english',
-      currentFlow: 'repair',
-      flowStep: s.flowStep,
-      collectedData: s.collectedData,
-    };
-  };
 
   sent.length = 0;
-  await handleRepairFlow(phone, 'bag_0', 'text', {}, { ...base, flowStep: 'ask_bag_type' });
-  const firstList = sent.find((m) => m.kind === 'list');
-  const rows = firstList.sections[0].rows;
-  assert.ok(rows.some((r) => r.id === 'prob_multi'), 'problem list offers Multiple issues');
-  assert.ok(rows.length <= 10, 'WhatsApp allows at most 10 list rows');
-  for (const r of rows) {
-    assert.ok(r.title.length <= 24, `row title too long: ${r.title}`);
-    if (r.description) assert.ok(r.description.length <= 72, 'row description too long');
-  }
-
-  sent.length = 0;
-  await handleRepairFlow(phone, 'prob_multi', 'text', {}, snap());
-  assert.strictEqual(getSession(phone).flowStep, 'ask_problem_multi');
-  const multiRows = sent.find((m) => m.kind === 'list').sections[0].rows;
-  assert.ok(!multiRows.some((r) => r.id === 'prob_multi'), 'multi list is only the issues');
-  assert.match(sent.find((m) => m.kind === 'list').body, /up to \*5\*/);
-
-  await handleRepairFlow(phone, 'prob_0', 'text', {}, snap());
-  assert.strictEqual(getSession(phone).flowStep, 'ask_more_problems');
-  const more = sent.find((m) => m.kind === 'button');
-  assert.deepStrictEqual(more.buttons.map((b) => b.id), ['btn_add_problem', 'btn_problems_done']);
-  for (const b of more.buttons) assert.ok(b.title.length <= 20, `button title too long: ${b.title}`);
-
-  await handleRepairFlow(phone, 'btn_add_problem', 'text', {}, snap());
-  await handleRepairFlow(phone, 'prob_1', 'text', {}, snap());
-  await handleRepairFlow(phone, 'btn_problems_done', 'text', {}, snap());
-
+  await handleRepairFlow(phone, '1, 3', 'text', {}, session);
   const booked = getSession(phone);
   assert.strictEqual(booked.flowStep, 'ask_store');
   assert.strictEqual(
     booked.collectedData.problem,
-    'Zip / Chain Issue · Wheel Issue',
+    'Zip / Chain Issue · Handle Issue',
   );
   assert.ok(
-    sent.some((m) => m.kind === 'button' && /Almost done/i.test(m.body) && /Wheel Issue/.test(m.body)),
+    sent.some((m) => m.kind === 'button' && /Almost done/i.test(m.body) && /Handle Issue/.test(m.body)),
     'store question should recap every issue',
   );
+
+  await handleRepairFlow('919888000014', '१, ३', 'text', {}, {
+    language: 'hindi',
+    currentFlow: 'repair',
+    flowStep: 'ask_problem',
+    collectedData: { name: 'Ravi', bagType: 'बैकपैक' },
+  });
+  assert.strictEqual(
+    getSession('919888000014').collectedData.problem,
+    'ज़िप / चेन की समस्या · हैंडल की समस्या',
+  );
+
+  const menuPhone = '919888000013';
+  sent.length = 0;
+  await handleRepairFlow(menuPhone, 'nope', 'text', {}, {
+    ...session,
+    collectedData: { name: 'Ravi', bagType: 'School Bag' },
+  });
+  const menu = sent.find((m) => m.kind === 'list');
+  const rows = menu.sections[0].rows;
+  assert.ok(!rows.some((r) => r.id === 'prob_multi'), 'no extra multi-issue step');
+  assert.strictEqual(rows.length, 8);
+  assert.ok(menu.body.length <= 1024, 'list body must fit WhatsApp');
+  assert.match(menu.body, /1\. Zip \/ Chain Issue/);
+  assert.match(menu.body, /Like \*1, 3\*/);
+  for (const r of rows) assert.ok(r.title.length <= 24, `row title too long: ${r.title}`);
 });
 
-test('the fifth issue continues straight to the store', async () => {
+test('more than five numbers asks again instead of dropping issues', async () => {
   const wp = require.resolve('../src/services/whatsapp');
   require(wp);
   const sent = [];
-  require.cache[wp].exports.sendTextMessage = async () => ({});
   require.cache[wp].exports.sendListMessage = async (to, h, body) => {
     sent.push({ kind: 'list', body }); return {};
   };
-  require.cache[wp].exports.sendButtonMessage = async (to, body) => {
-    sent.push({ kind: 'button', body }); return {};
-  };
+  require.cache[wp].exports.sendButtonMessage = async () => ({});
+  require.cache[wp].exports.sendTextMessage = async () => ({});
 
   delete require.cache[require.resolve('../src/flows/repair')];
   const { handleRepairFlow } = require('../src/flows/repair');
   const { getSession } = require('../src/utils/sessionStore');
 
   const phone = '919888000011';
-  await handleRepairFlow(phone, 'prob_4', 'text', {}, {
+  await handleRepairFlow(phone, '1, 2, 3, 4, 5, 6', 'text', {}, {
     language: 'english',
     currentFlow: 'repair',
-    flowStep: 'ask_problem_multi',
-    collectedData: {
-      name: 'Ravi',
-      bagType: 'Backpack',
-      problemIdxs: [0, 1, 2, 3],
-      problems: ['Zip / Chain Issue', 'Wheel Issue', 'Handle Issue', 'Lock Issue'],
-      problem: 'Zip / Chain Issue · Wheel Issue · Handle Issue · Lock Issue',
-    },
+    flowStep: 'ask_problem',
+    collectedData: { name: 'Ravi', bagType: 'Backpack' },
   });
 
-  const s = getSession(phone);
-  assert.strictEqual(s.flowStep, 'ask_store');
-  assert.strictEqual(s.collectedData.problems.length, 5);
-  assert.ok(s.collectedData.problem.length <= 400, 'joined issues must fit the sheet cell');
-  assert.ok(sent.some((m) => m.kind === 'button' && /Almost done/i.test(m.body)));
-  assert.ok(!sent.some((m) => m.kind === 'button' && /That's all/i.test(m.body)));
+  assert.notStrictEqual(getSession(phone).flowStep, 'ask_store');
+  assert.match(sent[0].body, /Up to \*5\*/);
 });
 
-test('an issue already chosen is not added twice', async () => {
+test('a second issue tapped on the old one-at-a-time step still books both', async () => {
   const wp = require.resolve('../src/services/whatsapp');
   require(wp);
   require.cache[wp].exports.sendTextMessage = async () => ({});
@@ -491,26 +469,24 @@ test('an issue already chosen is not added twice', async () => {
 
   delete require.cache[require.resolve('../src/flows/repair')];
   const { handleRepairFlow } = require('../src/flows/repair');
-  const { getSession, updateSession } = require('../src/utils/sessionStore');
+  const { getSession } = require('../src/utils/sessionStore');
 
   const phone = '919888000012';
-  const session = {
+  await handleRepairFlow(phone, 'prob_1', 'text', {}, {
     language: 'hindi',
     currentFlow: 'repair',
     flowStep: 'ask_problem_multi',
     collectedData: {
       name: 'Ravi',
       bagType: 'बैकपैक',
-      problemIdxs: [0],
-      problems: ['ज़िप / चेन की समस्या'],
+      problemIdxs: [2],
+      problems: ['हैंडल की समस्या'],
     },
-  };
-  updateSession(phone, session);
-  await handleRepairFlow(phone, 'prob_0', 'text', {}, getSession(phone));
+  });
 
   const s = getSession(phone);
-  assert.strictEqual(s.flowStep, 'ask_problem_multi');
-  assert.deepStrictEqual(s.collectedData.problems, ['ज़िप / चेन की समस्या']);
+  assert.strictEqual(s.flowStep, 'ask_store');
+  assert.strictEqual(s.collectedData.problem, 'हैंडल की समस्या · व्हील की समस्या');
 });
 
 test('throttles survive a process restart', () => {

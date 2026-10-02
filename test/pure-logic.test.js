@@ -189,9 +189,8 @@ test('list row ids stay in the repair flow (bag, problem)', () => {
   const s = { phone: '919000000099', currentFlow: 'repair' };
   assert.strictEqual(detectIntent('bag_0', s), '__continue_flow__');
   assert.strictEqual(detectIntent('prob_1', s), '__continue_flow__');
-  assert.strictEqual(detectIntent('prob_multi', s), '__continue_flow__');
-  assert.strictEqual(detectIntent('btn_add_problem', s), '__continue_flow__');
-  assert.strictEqual(detectIntent('btn_problems_done', s), '__continue_flow__');
+  assert.strictEqual(detectIntent('1, 3', s), '__continue_flow__');
+  assert.strictEqual(detectIntent('१, ३', s), '__continue_flow__');
 });
 
 test('"hi" inside stitching does not dump a booking into the main menu', () => {
