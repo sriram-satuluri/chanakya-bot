@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { verifyMetaWhatsAppCredentials } = require('../services/whatsapp');
+const { verifyMetaWhatsAppCredentials, assertBusinessInitiatedAllowed } = require('../services/whatsapp');
 const { readTicketRows } = require('../services/sheets');
 const { getRecipientsForCorporate } = require('../utils/ownerPhones');
 const { notifyOwners } = require('../utils/ownerAlert');
@@ -26,8 +26,9 @@ function resolvePath() {
 
 function emptyState() {
   return {
-    meta:   { failures: 0, alerted: false },
-    sheets: { failures: 0, alerted: false },
+    meta:    { failures: 0, alerted: false },
+    sheets:  { failures: 0, alerted: false },
+    billing: { failures: 0, alerted: false },
   };
 }
 
@@ -35,7 +36,7 @@ function loadState() {
   try {
     const raw = JSON.parse(fs.readFileSync(resolvePath(), 'utf8'));
     const out = emptyState();
-    for (const key of ['meta', 'sheets']) {
+    for (const key of ['meta', 'sheets', 'billing']) {
       if (raw && raw[key]) {
         out[key].failures = Number(raw[key].failures) || 0;
         out[key].alerted = Boolean(raw[key].alerted);
@@ -62,8 +63,9 @@ function saveState() {
 const state = loadState();
 
 const LABELS = {
-  meta:   'WhatsApp / Meta API',
-  sheets: 'Google Sheets',
+  meta:    'WhatsApp / Meta API',
+  sheets:  'Google Sheets',
+  billing: 'Repair status WhatsApps',
 };
 
 const HINTS = {
@@ -72,6 +74,10 @@ const HINTS = {
       + 'Until then the bot cannot send ANY message.',
   sheets: 'The service-account credentials or sheet permissions are failing. '
         + 'Until then the bot cannot create or look up tickets.',
+  billing: 'Meta is blocking business-initiated messages, so status updates and '
+         + 'weekly pickup reminders are not reaching customers. Open WhatsApp Manager '
+         + '→ Payment method and add a working card. Customers only hear about a '
+         + 'status change if they messaged this number in the last 24 hours until this is fixed.',
 };
 
 async function probeMeta() {
@@ -81,6 +87,10 @@ async function probeMeta() {
 
 async function probeSheets() {
   await readTicketRows();
+}
+
+async function probeBilling() {
+  await assertBusinessInitiatedAllowed();
 }
 
 async function alertOwners(text, kind) {
@@ -128,7 +138,8 @@ async function checkOne(key, probe) {
 async function runHealthCheck() {
   const metaOk = await checkOne('meta', probeMeta);
   const sheetsOk = await checkOne('sheets', probeSheets);
-  if (metaOk && sheetsOk) console.log('[HEALTH] OK — Meta and Sheets both responding.');
+  const billingOk = await checkOne('billing', probeBilling);
+  if (metaOk && sheetsOk && billingOk) console.log('[HEALTH] OK — Meta, Sheets, and business-initiated sends are clear.');
 }
 
 module.exports = { runHealthCheck };

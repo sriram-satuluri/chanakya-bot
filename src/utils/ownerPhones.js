@@ -1,28 +1,27 @@
 /**
  * Owner WhatsApp recipients (digits only, country code, no +).
  *
- * Three-tier model:
+ * New repair ticket:
+ *   Alkapuri  → Vatsal + Vedant
+ *   Sursagar  → Vatsal + Nilesh
+ * Corporate / bulk lead:
+ *   Vatsal + Vedant + Nilesh
  *
- *   OWNER_PHONE_<NAME>       → GENERAL owner. Notified for every repair ticket,
- *                              and for corporate leads unless the override
- *                              below is set. Vedant, Vatsal live here.
+ *   OWNER_PHONE_VATSAL       → every repair ticket, and corporate leads
+ *   OWNER_PHONE_VEDANT       → Alkapuri repairs + every corporate lead.
+ *                              Not Sursagar repairs.
+ *   OWNER_PHONE_NILESH       → Sursagar repairs + corporate leads.
+ *                              Not Alkapuri repairs.
+ *   BRANCH_OWNER_SURSAGAR    → Nilesh, when OWNER_PHONE_NILESH is unset.
+ *                              Sursagar repairs only. Added to corporate
+ *                              leads when CORPORATE_OWNER_PHONES is unset.
+ *   BRANCH_OWNER_ALKAPURI    → extra Alkapuri-only recipients.
+ *   CORPORATE_OWNER_PHONES   → when set, this is the corporate list, and
+ *                              Vedant (OWNER_PHONE_VEDANT) is still added
+ *                              if he is not already on it.
  *
- *   BRANCH_OWNER_<SLUG>      → BRANCH-ONLY owner. Notified ONLY for repair
- *                              tickets whose store slug matches this key.
- *                              Nilesh lives at BRANCH_OWNER_SURSAGAR.
- *                              Value may be a single number or comma-separated.
- *
- *   CORPORATE_OWNER_PHONES   → BULK-ONLY list. When set it REPLACES the general
- *                              list for corporate/bulk-order leads — it does not
- *                              add to it. A general owner left out of this var
- *                              stops receiving bulk alerts but keeps receiving
- *                              repair alerts. Comma-separated.
- *
- * Rules:
- *   - Corporate leads → getRecipientsForCorporate() → CORPORATE_OWNER_PHONES
- *                       if set, otherwise general only.
- *   - Repair tickets  → getRecipientsForRepair(branchSlug) → general + that branch.
- *   - Store-location flow  → no notification (informational).
+ * Any other OWNER_PHONE_<NAME> is treated like Vatsal (every repair +
+ * corporate, unless the corporate override is set).
  */
 
 function cleanPhone(raw) {
@@ -67,42 +66,73 @@ function getBranchOwnerPhones(branchSlug) {
   return splitAndClean(process.env[key]);
 }
 
+function ownerEnvName(envKey) {
+  const m = /^OWNER_PHONE_([A-Z0-9_]+)$/.exec(envKey);
+  return m ? m[1] : null;
+}
+
+/** Vedant hears Alkapuri repairs and corporate leads, not Sursagar repairs. */
+function isVedantOwner(name) {
+  return name === 'VEDANT' || name.startsWith('VEDANT_');
+}
+
+/** Nilesh hears Sursagar repairs and corporate leads, not Alkapuri repairs. */
+function isNileshOwner(name) {
+  return name === 'NILESH' || name.startsWith('NILESH_');
+}
+
+function addPhones(out, seen, phones) {
+  for (const p of phones) {
+    if (seen.has(p)) continue;
+    seen.add(p);
+    out.push(p);
+  }
+}
+
 /**
- * Union of general + branch-specific owners for a repair-ticket alert.
- * Deduplicates. Order is stable: general first, then branch-only extras.
+ * Who hears about a new repair ticket.
+ *   alkapuri → Vatsal + Vedant (+ BRANCH_OWNER_ALKAPURI)
+ *   sursagar → Vatsal + Nilesh (BRANCH_OWNER_SURSAGAR / OWNER_PHONE_NILESH)
  * @param {string} branchSlug
  * @returns {string[]}
  */
 function getRecipientsForRepair(branchSlug) {
   const seen = new Set();
   const out = [];
-  for (const p of getGeneralOwnerPhones()) {
-    if (!seen.has(p)) { seen.add(p); out.push(p); }
+  for (const [key, raw] of Object.entries(process.env)) {
+    const name = ownerEnvName(key);
+    if (!name) continue;
+    if (branchSlug === 'sursagar' && isVedantOwner(name)) continue;
+    if (branchSlug !== 'sursagar' && isNileshOwner(name)) continue;
+    addPhones(out, seen, splitAndClean(raw));
   }
-  for (const p of getBranchOwnerPhones(branchSlug)) {
-    if (!seen.has(p)) { seen.add(p); out.push(p); }
-  }
+  addPhones(out, seen, getBranchOwnerPhones(branchSlug));
   return out;
 }
 
 /**
- * Recipients for corporate / bulk-order lead alerts. Branch-only owners are
- * intentionally excluded — corporate enquiries aren't tied to a store.
+ * Corporate and bulk-order leads: Vatsal, Vedant, and Nilesh.
  *
- * CORPORATE_OWNER_PHONES overrides the general list entirely when set, so bulk
- * enquiries can go to the two people who actually quote them without also
- * having to leave those numbers on every repair ticket. Unset falls back to
- * the general owners, which is the historical behaviour.
+ * CORPORATE_OWNER_PHONES, when set, is the base list (so the numbers already
+ * chosen for quoting stay). Vedant is still added from OWNER_PHONE_VEDANT
+ * when that list left him out. Unset falls back to every general owner plus
+ * the Sursagar branch line (Nilesh).
  * @returns {string[]}
  */
 function getRecipientsForCorporate() {
-  const explicit = splitAndClean(process.env.CORPORATE_OWNER_PHONES);
-  if (!explicit.length) return getGeneralOwnerPhones();
-
   const seen = new Set();
   const out = [];
-  for (const p of explicit) {
-    if (!seen.has(p)) { seen.add(p); out.push(p); }
+  const explicit = splitAndClean(process.env.CORPORATE_OWNER_PHONES);
+  if (explicit.length) {
+    addPhones(out, seen, explicit);
+  } else {
+    addPhones(out, seen, getGeneralOwnerPhones());
+    addPhones(out, seen, getBranchOwnerPhones('sursagar'));
+  }
+  for (const [key, raw] of Object.entries(process.env)) {
+    const name = ownerEnvName(key);
+    if (!name || !isVedantOwner(name)) continue;
+    addPhones(out, seen, splitAndClean(raw));
   }
   return out;
 }
@@ -130,9 +160,8 @@ function branchSlugFromStoreHint(hint) {
 /**
  * THE shared "who should hear about this?" helper for anything tied to a store.
  *
- * General owners (Vedant, Vatsal) are always notified. A branch-only owner
- * (Nilesh on BRANCH_OWNER_SURSAGAR) is added ONLY when the store context
- * actually resolves to their branch.
+ * Vatsal is always notified. Vedant is added except for a Sursagar repair.
+ * Nilesh (BRANCH_OWNER_SURSAGAR) is added only when the store is Sursagar.
  *
  * Unknown or absent store context deliberately falls back to general owners
  * only — we never guess a branch owner in. Being pinged about something that

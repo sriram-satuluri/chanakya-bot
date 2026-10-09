@@ -1,11 +1,11 @@
 /**
- * Approved WhatsApp template names.
+ * WhatsApp template names for repair-status updates.
  *
- * Jobs used to fall back to hardcoded names (repair_status_update_en, …).
- * Those names are what we *will* submit to Meta — they are not approved yet.
- * Calling Graph with an unapproved name fails, and the status poller treats
- * three failures as "unsubscribe this customer". So we only send when the
- * operator has explicitly set the env vars after Meta shows APPROVED.
+ * REPAIR_UPDATE_TEMPLATE_EN/HI/GU override the built-in names
+ * (repair_status_update_en/hi/gu) once Meta shows those templates APPROVED.
+ * Until then the poller still tries the built-in name. A "template does not
+ * exist" or payment-method error is retried later — it does not unsubscribe
+ * the customer. Feedback templates stay off until their env vars are set.
  */
 
 const { envStr } = require('./env');
@@ -24,6 +24,13 @@ const FEEDBACK_ENV = {
   gujarati: 'FEEDBACK_TEMPLATE_GU',
 };
 
+/** Used when REPAIR_UPDATE_TEMPLATE_* is unset. Meta must show these APPROVED. */
+const DEFAULT_REPAIR_TEMPLATE = {
+  english:  'repair_status_update_en',
+  hindi:    'repair_status_update_hi',
+  gujarati: 'repair_status_update_gu',
+};
+
 function named(envMap, lang) {
   const key = envMap[lang] || envMap.english;
   const name = envStr(key);
@@ -34,6 +41,10 @@ function named(envMap, lang) {
 }
 
 function repairUpdatesReady() {
+  return true;
+}
+
+function repairTemplateEnvSet() {
   return Object.values(REPAIR_ENV).some((k) => envStr(k));
 }
 
@@ -42,7 +53,10 @@ function feedbackTemplatesReady() {
 }
 
 function resolveRepairUpdateTemplate(lang) {
-  return named(REPAIR_ENV, lang);
+  const fromEnv = named(REPAIR_ENV, lang);
+  if (fromEnv) return fromEnv;
+  const key = DEFAULT_REPAIR_TEMPLATE[lang] ? lang : 'english';
+  return { name: DEFAULT_REPAIR_TEMPLATE[key], langCode: LANG_CODE[key] || 'en' };
 }
 
 function resolveFeedbackTemplate(lang) {
@@ -59,7 +73,9 @@ function missingTemplateEnv() {
 
 module.exports = {
   LANG_CODE,
+  DEFAULT_REPAIR_TEMPLATE,
   repairUpdatesReady,
+  repairTemplateEnvSet,
   feedbackTemplatesReady,
   resolveRepairUpdateTemplate,
   resolveFeedbackTemplate,

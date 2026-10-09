@@ -225,7 +225,7 @@ test('merging did not drop the ticket id, the T&C line, or the store numbers', a
   assert.ok(confirmation.length < 4000, `must stay under the WhatsApp limit, was ${confirmation.length}`);
 });
 
-test('the reminders question is asked even without Utility templates', async () => {
+test('booking does not ask whether they want updates', async () => {
   delete process.env.REPAIR_UPDATE_TEMPLATE_EN;
   delete process.env.REPAIR_UPDATE_TEMPLATE_HI;
   delete process.env.REPAIR_UPDATE_TEMPLATE_GU;
@@ -233,9 +233,11 @@ test('the reminders question is asked even without Utility templates', async () 
   const phone = '919777000203';
   await handleRepairFlow(phone, 'btn_skip_photo', 'interactive', {}, photoSession(phone));
   const msgs = outbound.filter((m) => m.to === phone);
-  assert.ok(msgs.some((m) => /daily ping/i.test(m.body)), 'opt-in question after ticket');
-  assert.ok(msgs.some((m) => (m.buttons || []).includes('ru_yes')), 'Yes is tappable');
-  assert.ok(msgs.some((m) => (m.buttons || []).includes('ru_no')), 'No is tappable');
+  assert.strictEqual(msgs.length, 1, 'confirmation is the only message');
+  assert.ok(!msgs.some((m) => /daily ping/i.test(m.body)), 'no opt-in question');
+  assert.ok(!msgs.some((m) => (m.buttons || []).includes('ru_yes')));
+  assert.ok(msgs[0].body.includes('+91 99740 17723') || msgs[0].body.includes('+91 99740 17731'), 'store number stays on the ticket');
+  assert.ok(msgs[0].body.includes('+91 70483 82178'), 'employee / customer-care number stays');
 });
 
 // ── Optional salesperson assignment ───────────────────────────

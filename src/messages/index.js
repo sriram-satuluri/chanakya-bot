@@ -365,6 +365,12 @@ const messages = {
     gujarati:`✅ Ticket *{{ticketId}}* — આ બેગ *લઈ લેવાઈ* છે. Chanakya પસંદ કરવા બદલ આભાર! 🎒`,
   },
 
+  status_ticket_cancelled: {
+    english: `❌ *Ticket cancelled — {{ticketId}}*\n\nThis repair has been *cancelled*.\n\nIf your bag is at *{{store}}*, please collect it.\n⏰ 10 AM – 9 PM daily\n\nIf you didn't expect this, reply here or call the store.`,
+    hindi:   `❌ *टिकट रद्द — {{ticketId}}*\n\nयह रिपेयर *रद्द* कर दी गई है।\n\nअगर आपका बैग *{{store}}* पर है तो कृपया ले जाएं।\n⏰ रोज़ सुबह 10 – रात 9\n\nअगर यह अपेक्षित नहीं था तो यहीं जवाब दें या स्टोर पर कॉल करें।`,
+    gujarati:`❌ *ટિકિટ રદ — {{ticketId}}*\n\nઆ રિપેર *રદ* કરવામાં આવી છે.\n\nજો આપની બેગ *{{store}}* પર હોય તો કૃપા કરીને લઈ જાઓ.\n⏰ રોજ સવારે 10 – રાત 9\n\nજો આ અપેક્ષિત ન હોય તો અહીં જવાબ આપો અથવા સ્ટોર પર કૉલ કરો.`,
+  },
+
   store_intro: {
     english: `🗺️ *Our Stores — Chanakya Bag Studio*\n\nWe have *2 stores* in Vadodara.\n⏰ *10 AM – 9 PM* (Mon – Sun)\n\nPick a store below — we’ll open *Google Maps driving directions* to that door.`,
     hindi:   `🗺️ *हमारे स्टोर — Chanakya Bag Studio*\n\nवडोदरा में *2 स्टोर।*\n⏰ *सुबह 10 – रात 9* (सोम – रवि)\n\nनीचे स्टोर चुनें — *Google Maps दिशा–निर्देश* खुलेंगे।`,
@@ -713,6 +719,7 @@ const STATUS_LABELS = {
   'Ready for Pickup':   { english: 'Ready for pickup',          hindi: 'पिकअप के लिए तैयार',         gujarati: 'પિકઅપ માટે તૈયાર' },
   'Cannot Repair':      { english: 'Cannot be repaired',        hindi: 'रिपेयर संभव नहीं',           gujarati: 'રિપેર શક્ય નથી' },
   'Picked Up':          { english: 'Collected',                 hindi: 'ले लिया गया',                gujarati: 'લઈ લેવાઈ' },
+  'Cancel Ticket':      { english: 'Ticket cancelled',          hindi: 'टिकट रद्द',                  gujarati: 'ટિકિટ રદ' },
 };
 
 function statusLabel(status, lang) {

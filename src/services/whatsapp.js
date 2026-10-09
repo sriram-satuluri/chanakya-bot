@@ -331,6 +331,24 @@ function isOutsideWindowError(code) {
   return code === 131047 || code === 131051;
 }
 
+/**
+ * Template is missing, pending, paused, or rejected. Retry later — do not
+ * count this as the customer's phone failing.
+ * 132001 does not exist · 132015 paused · 132016 disabled · 132000/132007/132012 bad params
+ */
+function isTemplateUnavailableError(code) {
+  return code === 132000 || code === 132001 || code === 132007
+    || code === 132012 || code === 132015 || code === 132016;
+}
+
+/**
+ * WhatsApp is refusing business-initiated messages because billing is broken.
+ * 131042 is the send-API code. 141006 is the health_status code.
+ */
+function isPaymentBlockError(code) {
+  return code === 131042 || code === 141006;
+}
+
 // ── Lightweight Graph check (no outbound message sent) ─────────
 async function verifyMetaWhatsAppCredentials() {
   const pid = phoneId();
@@ -369,14 +387,48 @@ async function verifyMetaWhatsAppCredentials() {
   }
 }
 
+/**
+ * Business-initiated sends (status templates, weekly reminders) are blocked
+ * when the WABA payment method is broken, even if the token itself is valid.
+ * Returns null when the check could not be completed. Throws when Meta
+ * reports the WABA cannot send.
+ */
+async function assertBusinessInitiatedAllowed() {
+  const pid = phoneId();
+  const token = getMetaAccessToken();
+  if (!pid || !token) return null;
+  let res;
+  try {
+    res = await axios.get(`${BASE_URL}/${pid}`, {
+      params: { fields: 'health_status' },
+      headers: headers(),
+      timeout: 12000,
+    });
+  } catch (err) {
+    console.warn('[WA] health_status unreadable:', err.response?.data?.error?.message || err.message);
+    return null;
+  }
+  const entities = res.data?.health_status?.entities || [];
+  const waba = entities.find((e) => e.entity_type === 'WABA');
+  if (!waba || waba.can_send_message !== 'BLOCKED') return null;
+  const detail = (waba.errors || [])[0] || {};
+  const code = detail.error_code ?? '?';
+  const why = detail.error_description || 'business-initiated messages are blocked';
+  const fix = detail.possible_solution || 'Check the payment method in WhatsApp Manager.';
+  throw new Error(`Meta ${code}: ${why} ${fix}`);
+}
+
 module.exports = {
   sendTextMessage, sendButtonMessage, sendListMessage, sendFlowMessage,
   sendLocationMessage, sendImageMessage, sendDocumentMessage, sendTemplateMessage,
   markAsRead, downloadMedia,
   verifyMetaWhatsAppCredentials,
+  assertBusinessInitiatedAllowed,
   getMetaAccessToken,
   phoneId,
   isLikelySendablePhone,
   isOutsideWindowError,
+  isTemplateUnavailableError,
+  isPaymentBlockError,
   sanitizeTemplateParam,
 };

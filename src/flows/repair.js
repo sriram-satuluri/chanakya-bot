@@ -14,7 +14,6 @@ const {
 const { uploadInboundRepairPhoto } = require('./latePhoto');
 const { showMainMenu } = require('./mainMenu');
 const { handleEscalation } = require('./escalate');
-const { askRepairUpdatesOptIn } = require('./repairUpdates');
 const { detectIntent } = require('../utils/intentDetect');
 const { envInt } = require('../utils/env');
 const {
@@ -377,7 +376,7 @@ async function createTicketForStore(phone, store, data, lang) {
           (data.servedBy ? `🧑‍💼 *Assigned to:* ${data.servedBy}\n` : '') +
           (data.beforePhotoUrl ? `📸 *Photo:* ${data.beforePhotoUrl}\n` : `📸 *Photo:* customer will send later\n`) +
           `🌐 *Language:* ${lang}`;
-        // Notify general owners + any branch-specific owner (Nilesh for Sursagar, etc.)
+        // Alkapuri → Vatsal + Vedant. Sursagar → Vatsal + Nilesh.
         const branchSlugForAlerts = branchSlugFromRepairStoreId(store);
         const recipients = getRecipientsForRepair(branchSlugForAlerts);
         // Fire-and-forget: the customer must never wait on owner alerting, and
@@ -390,13 +389,13 @@ async function createTicketForStore(phone, store, data, lang) {
         return sendTextMessage(phone, M.get('ticket_create_failed', lang));
       }
 
-      // ONE confirmation message, not three.
+      // ONE confirmation message.
       //
       // This used to send the confirmation, then the T&C reminder, then the
-      // store contact block as three separate texts — and the opt-in question
-      // right after made four notifications for a single button tap. The
-      // detail people actually keep (the ticket id) scrolled away under the
-      // rest. Same words, same T&C acceptance record, one buzz.
+      // store contact block as three separate texts. The detail people
+      // actually keep (the ticket id) scrolled away under the rest. Same
+      // words, same T&C acceptance record, one buzz. Status updates after
+      // this are mandatory — there is no "do you want updates?" question.
       const branchSlug = branchSlugFromRepairStoreId(store);
       const parts = [
         M.fill(M.get('repair_confirmed', lang), {
@@ -416,11 +415,7 @@ async function createTicketForStore(phone, store, data, lang) {
       }
 
       clearSession(phone);
-      await sendTextMessage(phone, parts.join('\n\n'));
-
-      // Then the reminders question. Its answer buttons double as the exit, so
-      // this is the second and final message of the booking tail.
-      return askRepairUpdatesOptIn(phone, lang, ticketId);
+      return sendTextMessage(phone, parts.join('\n\n'));
 }
 
 // ── Menu helpers ──────────────────────────────────────────────

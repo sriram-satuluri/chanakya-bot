@@ -37,9 +37,12 @@ throttles, health counters).
    Business app: registering it on Cloud API *without coexistence* logs the
    app out of the phone.
 
-5. **Submit and wait for Utility templates (24–48 h).** The bot will **not**
-   send status updates or feedback, and will **not** ask "Yes, update me" after
-   booking, until these env vars are set to *approved* names:
+5. **Submit and wait for Utility templates (24–48 h).** There is no
+   "do you want updates?" question — status changes and the weekly pickup
+   reminder go to every customer. They are held and retried until these
+   templates are APPROVED **and** WhatsApp Manager → Payment method can start
+   business-initiated conversations (a failed card blocks them with Meta 141006).
+   Feedback stays off until its templates are approved. Optional overrides:
 
    ### repair_status_update_en / _hi / _gu (category: Utility)
 
@@ -120,8 +123,9 @@ you clear it.
 - Webhook HMAC (`X-Hub-Signature-256`, timing-safe); `SKIP_WEBHOOK_SIGNATURE`
   ignored in production; unsigned webhooks rejected.
 - Production fail-fast: missing Meta, Google Sheets, or Cloudinary credentials abort startup with exit 1.
-- Unapproved template names are **not** called: status/feedback jobs no-op
-  until `REPAIR_UPDATE_TEMPLATE_*` / `FEEDBACK_TEMPLATE_*` are set.
+- An unapproved repair-status template, or a blocked WhatsApp payment method,
+  is retried next run and does **not** unsubscribe the customer. Feedback
+  stays off until `FEEDBACK_TEMPLATE_*` is set.
 - Per-IP rate limiting keyed on `req.ip` via `trust proxy`; JSON body capped at 100 KB.
 - Message dedup, session timeouts, per-phone corporate-lead throttle.
 - Ticket tracking is a shared-ID lookup (anyone with the exact ticket ID can view status; the reply has no customer name or phone) with a 5/hour cross-phone throttle.

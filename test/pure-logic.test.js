@@ -138,8 +138,8 @@ test('sanitizeTemplateParam falls back when the value is empty', () => {
 });
 
 test('isLikelySendablePhone accepts real numbers and rejects junk', () => {
-  assert.strictEqual(isLikelySendablePhone('918490046663'), true);
-  assert.strictEqual(isLikelySendablePhone('+91 84900 46663'), true);
+  assert.strictEqual(isLikelySendablePhone('919000000001'), true);
+  assert.strictEqual(isLikelySendablePhone('+91 90000 00001'), true);
   assert.strictEqual(isLikelySendablePhone('Ramesh'), false);
   assert.strictEqual(isLikelySendablePhone(''), false);
 });
@@ -275,6 +275,42 @@ test('CORPORATE_OWNER_PHONES tolerates spaces, +, blanks and duplicates', () => 
   delete process.env.CORPORATE_OWNER_PHONES;
 });
 
+test('repair alerts split by store; corporate reaches Vatsal, Vedant and Nilesh', () => {
+  const saved = {};
+  for (const k of ['OWNER_PHONE_VATSAL', 'OWNER_PHONE_VEDANT', 'OWNER_PHONE_NILESH', 'BRANCH_OWNER_SURSAGAR', 'CORPORATE_OWNER_PHONES', 'OWNER_PHONE_TESTA']) {
+    saved[k] = process.env[k];
+    delete process.env[k];
+  }
+  process.env.OWNER_PHONE_VATSAL = '911111111969';
+  process.env.OWNER_PHONE_VEDANT = '912222222477';
+  process.env.BRANCH_OWNER_SURSAGAR = '913333333663';
+  try {
+    const alka = getRecipientsForRepair('alkapuri');
+    assert.ok(alka.includes('911111111969'), 'Vatsal on Alkapuri');
+    assert.ok(alka.includes('912222222477'), 'Vedant on Alkapuri');
+    assert.ok(!alka.includes('913333333663'), 'Nilesh is not on Alkapuri');
+
+    const sur = getRecipientsForRepair('sursagar');
+    assert.ok(sur.includes('911111111969'), 'Vatsal on Sursagar');
+    assert.ok(sur.includes('913333333663'), 'Nilesh on Sursagar');
+    assert.ok(!sur.includes('912222222477'), 'Vedant is not on Sursagar');
+
+    const corp = getRecipientsForCorporate();
+    assert.ok(corp.includes('911111111969') && corp.includes('912222222477') && corp.includes('913333333663'));
+
+    process.env.CORPORATE_OWNER_PHONES = '919974017727,919974017725';
+    assert.deepStrictEqual(
+      getRecipientsForCorporate(),
+      ['919974017727', '919974017725', '912222222477'],
+    );
+  } finally {
+    for (const [k, v] of Object.entries(saved)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  }
+});
+
 test('an all-garbage CORPORATE_OWNER_PHONES falls back rather than alerting nobody', () => {
   process.env.OWNER_PHONE_TESTA = '911111111111';
   process.env.CORPORATE_OWNER_PHONES = 'not-a-number, ,abc';
@@ -331,11 +367,17 @@ function withClearedTemplateEnv(fn) {
   }
 }
 
-test('repair/feedback jobs stay off until template env is set', () => {
+test('unset repair template env uses the built-in Utility names', () => {
   withClearedTemplateEnv(() => {
-    assert.strictEqual(repairUpdatesReady(), false);
     assert.strictEqual(feedbackTemplatesReady(), false);
-    assert.strictEqual(resolveRepairUpdateTemplate('english'), null);
+    assert.deepStrictEqual(resolveRepairUpdateTemplate('english'), {
+      name: 'repair_status_update_en',
+      langCode: 'en',
+    });
+    assert.deepStrictEqual(resolveRepairUpdateTemplate('gujarati'), {
+      name: 'repair_status_update_gu',
+      langCode: 'gu',
+    });
     assert.ok(missingTemplateEnv().includes('REPAIR_UPDATE_TEMPLATE_EN'));
   });
 });
@@ -962,6 +1004,25 @@ test('opted-in Ready for Pickup uses the weekly pickup reminder, not the 24h pro
   }, Date.now());
   assert.strictEqual(d.send, false);
   assert.strictEqual(d.skip, 'waiting_pickup');
+});
+
+test('Cancel Ticket always notifies once, then stops', () => {
+  const first = decideAction({
+    status: 'Cancel Ticket',
+    lastStatusSent: 'Repair In Progress',
+    optedIn: false,
+  }, Date.now());
+  assert.strictEqual(first.send, true);
+  assert.strictEqual(first.reason, 'mandatory');
+  assert.strictEqual(first.terminal, 'cancelled');
+
+  const again = decideAction({
+    status: 'Cancel Ticket',
+    lastStatusSent: 'Cancel Ticket',
+    optedIn: false,
+  }, Date.now());
+  assert.strictEqual(again.send, false);
+  assert.strictEqual(again.stopReason, 'cancelled');
 });
 
 test('Picked Up is a one-shot close — no further pings after we told them', () => {

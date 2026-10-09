@@ -48,9 +48,9 @@ function logConfigWarnings() {
   } catch { /* ownerPhones is best-effort at boot */ }
 
   try {
-    const { missingTemplateEnv, repairUpdatesReady, feedbackTemplatesReady } = require('./utils/metaTemplates');
-    if (!repairUpdatesReady()) {
-      console.warn('[CONFIG] REPAIR_UPDATE_TEMPLATE_EN/HI/GU unset — status pushes and the post-booking opt-in question are off until Meta approves those Utility templates.');
+    const { missingTemplateEnv, repairTemplateEnvSet, feedbackTemplatesReady } = require('./utils/metaTemplates');
+    if (!repairTemplateEnvSet()) {
+      console.warn('[CONFIG] REPAIR_UPDATE_TEMPLATE_EN/HI/GU unset — status and weekly reminders use repair_status_update_en/hi/gu. They stay held until Meta approves those Utility templates and the WhatsApp payment method is valid.');
     }
     if (!feedbackTemplatesReady()) {
       console.warn('[CONFIG] FEEDBACK_TEMPLATE_EN/HI/GU unset — post-pickup ratings will not be requested until those templates are approved.');

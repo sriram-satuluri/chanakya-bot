@@ -16,6 +16,7 @@ const REPAIR_TICKET_STATUSES = [
   'Ready for Pickup',
   'Cannot Repair',
   'Picked Up',
+  'Cancel Ticket',
 ];
 
 /**
@@ -55,6 +56,7 @@ function canonicalStatus(s) {
 const TERMINAL_STOP_REASON = {
   'Picked Up':     'completed',
   'Cannot Repair': 'cancelled',
+  'Cancel Ticket': 'cancelled',
 };
 
 /**
@@ -67,6 +69,7 @@ const MANDATORY_CUSTOMER_NOTIFY_STATUSES = new Set([
   'Ready for Pickup',
   'Picked Up',
   'Cannot Repair',
+  'Cancel Ticket',
 ]);
 
 function isMandatoryCustomerNotifyStatus(status) {

@@ -6,7 +6,7 @@ The WhatsApp bot reads and writes the Google Sheet. Wrong cells look like a brok
 
 | Column | What | Rules |
 |---|---|---|
-| **G Current Status** | Where the bag is | Use the **dropdown only**. Do not type a variant. Each change can WhatsApp the customer. Repair Complete, Ready for Pickup, Picked Up, and Cannot Repair always message them. Ready for Pickup reminds weekly for 4 weeks (28-day hold). |
+| **G Current Status** | Where the bag is | Use the **dropdown only**. Do not type a variant. Each change can WhatsApp the customer. Repair Complete, Ready for Pickup, Picked Up, Cannot Repair, and Cancel Ticket always message them. Ready for Pickup reminds weekly for 4 weeks (28-day hold). |
 
 That is the only column shop-floor staff can change. The tab is locked: ticket id (A), phone, photos, notes, the P1 counter, and reminder columns are bot + owner only. Run `npm run sheet:protect` if someone can still edit the rest.
 
@@ -24,6 +24,7 @@ Ticket IDs are `CHA-R-…` (Alkapuri) or `CHA-S-…` (Sursagar). Older rows may 
 6. **Ready for Pickup** — customer is **always** notified immediately, then reminded every 7 days (same weekday/time) for 4 weeks. After 28 days, reminders stop. Mark Picked Up when they collect.
 7. **Cannot Repair** — customer is **always** told the ticket is closed.
 8. **Picked Up** — customer is **always** told the ticket is closed; stop all further pings.
+9. **Cancel Ticket** — customer is **always** told the ticket was cancelled; stop all further pings.
 
 If a row sits on (1) for a week, they probably never came. Run `npm run sheet:orphans` or call them.
 
